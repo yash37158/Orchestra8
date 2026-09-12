@@ -2,6 +2,10 @@
 # onboarding fails when a chart asks fifteen questions on the first screen.
 clusterId: ""
 
+# Organisation this cluster belongs to. Temporary: once the ingest gateway is
+# in front, the token determines this and the value here is ignored.
+orgId: ""
+
 # Where telemetry is sent. The onboarding flow fills this in.
 endpoint: ""
 # Token for that endpoint, stored in a Secret rather than inlined into the

@@ -14,7 +14,7 @@ OTELCOL := .localdev/bin/otelcol-contrib
 LOGS    := .localdev/logs
 
 .PHONY: up down status logs store schema devkit collector api web \
-        check contract test fault surge healthy scenarios scan audit hook alerts verify-engine clean-store
+        check contract test fault surge healthy scenarios scan audit hook alerts verify-engine control-plane tenancy clean-store
 
 # ---------------------------------------------------------------- one command
 # The individual targets below run in the FOREGROUND, which is what you want
@@ -68,6 +68,19 @@ store:                       ## start clickhouse (data in .localdev, gitignored)
 
 schema:                      ## apply rollup DDL (idempotent)
 	clickhouse client --multiquery < services/api/schema.sql
+
+control-plane:               ## create the Postgres control plane (orgs, users, tokens)
+	@createdb -h 127.0.0.1 orchestr8 2>/dev/null || true
+	@psql -h 127.0.0.1 -d orchestr8 -v ON_ERROR_STOP=1 -q -f services/control/migrations/001_control_plane.sql
+	@psql -h 127.0.0.1 -d orchestr8 -tAc "SELECT '  '||tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
+
+tenancy:                     ## show who owns what
+	@echo "  control plane (postgres):"
+	@psql -h 127.0.0.1 -d orchestr8 -tAc "SELECT '    '||o.slug||' / '||c.cluster_key||'  team='||coalesce(c.team,'-') \
+		FROM clusters c JOIN organizations o ON o.id=c.org_id ORDER BY o.slug, c.cluster_key" 2>/dev/null || echo "    (not initialised - run: make control-plane)"
+	@echo "  telemetry (clickhouse):"
+	@clickhouse client --query "SELECT concat('    ', OrgId, ' / ', ClusterId, '  ', toString(uniq(GpuUuid)), ' GPU(s)') \
+		FROM orchestr8.gpu_minute WHERE Minute >= now() - INTERVAL 10 MINUTE GROUP BY OrgId, ClusterId ORDER BY OrgId, ClusterId" 2>/dev/null
 
 devkit:                      ## GPU fleet simulator on :9400
 	cd services/devkit && go run . -addr :9400 -interval 5s

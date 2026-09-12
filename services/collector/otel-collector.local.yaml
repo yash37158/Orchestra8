@@ -41,6 +41,13 @@ processors:
       - key: orchestr8.cluster.id
         value: gcp-usc1
         action: insert
+      # TEMPORARY. Until the ingest gateway resolves the organisation from the
+      # ingest token, the collector asserts it — which means it is trusted
+      # input, and trusted input is exactly what this whole change removes.
+      # Delete this block once the gateway is in front.
+      - key: orchestr8.org.id
+        value: local
+        action: insert
 
   # Prometheus counters and histograms arrive CUMULATIVE (monotonically growing
   # since process start). Summing those across minutes in a rollup is

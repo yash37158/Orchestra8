@@ -1,32 +1,33 @@
--- Orchestr8 telemetry store. ClickHouse, not Prometheus, for one reason:
--- this product's primary key is high-cardinality by nature (gpu_uuid x model x
--- pod x request_id). Prometheus creates a new series per label combination and
--- a single high-cardinality label can multiply the bill overnight; ClickHouse
--- stores those as columns and compresses them 10-20x.
+-- Add OrgId to every long-lived table, FIRST in the sort key.
 --
--- Retention is deliberately tiered. Raw spans are the largest cost line, so
--- they live 30d; the rollups the dashboard actually reads live 13 months and
--- cost almost nothing.
-
-CREATE DATABASE IF NOT EXISTS orchestr8;
-
--- ---------------------------------------------------------------- raw layer
+-- Why first: every query in a multi-tenant system filters by organisation, so
+-- it must be the primary sort dimension for ClickHouse's data skipping to work.
+-- Putting it second means every read scans other tenants' parts before
+-- discarding them.
 --
--- NOT DEFINED HERE. The ClickHouse exporter owns the otel_* tables and creates
--- them itself (create_schema: true), because it knows its own storage layout —
--- which splits metrics by type into otel_metrics_gauge / _sum / _histogram /
--- _summary / _exponential_histogram rather than one table. Declaring them here
--- too means fighting the exporter over DDL on every version bump, and losing
--- silently: writes fail into a table shape it did not expect.
+-- Why now: ClickHouse cannot ALTER a sort key. Retrofitting this later means
+-- rewriting every table — which is exactly why PRD Q3 called it out as the
+-- expensive decision.
 --
--- This file owns the ROLLUP layer only: the aggregates the dashboard reads.
-
--- ------------------------------------------------------------ rollup layer
+-- Scope: the 13-month tables. Raw otel_* keeps its exporter-owned schema for
+-- now; it has a 30-day TTL so it churns out on its own, and the ingest gateway
+-- takes ownership of those writes in the next step.
 --
--- Every table below keys on OrgId FIRST. See migrations/002_org_scoping.sql
--- for why that ordering is load-bearing rather than cosmetic.
+-- DEFAULT 'local' is a migration crutch, not a design: it keeps writers that do
+-- not yet set OrgId producing valid rows. The gateway derives OrgId from the
+-- ingest token, and once it does this default should be dropped so a missing
+-- org fails loudly instead of silently landing in someone else's tenant.
 
-CREATE TABLE IF NOT EXISTS orchestr8.gpu_minute
+DROP TABLE IF EXISTS orchestr8.gpu_minute_mv;
+DROP TABLE IF EXISTS orchestr8.inference_minute_mv;
+DROP TABLE IF EXISTS orchestr8.gpu_minute;
+DROP TABLE IF EXISTS orchestr8.inference_minute;
+DROP TABLE IF EXISTS orchestr8.correlations;
+DROP TABLE IF EXISTS orchestr8.audit_log;
+DROP TABLE IF EXISTS orchestr8.scans;
+DROP TABLE IF EXISTS orchestr8.scan_findings;
+
+CREATE TABLE orchestr8.gpu_minute
 (
     OrgId          LowCardinality(String) DEFAULT 'local',
     Minute         DateTime CODEC(Delta, ZSTD(1)),
@@ -46,7 +47,7 @@ PARTITION BY toYYYYMM(Minute)
 ORDER BY (OrgId, ClusterId, NodeName, GpuUuid, Minute)
 TTL Minute + INTERVAL 13 MONTH;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS orchestr8.gpu_minute_mv TO orchestr8.gpu_minute AS
+CREATE MATERIALIZED VIEW orchestr8.gpu_minute_mv TO orchestr8.gpu_minute AS
 SELECT
     ifNull(nullIf(ResourceAttributes['orchestr8.org.id'], ''), 'local') AS OrgId,
     toStartOfMinute(TimeUnix)                  AS Minute,
@@ -64,7 +65,7 @@ FROM orchestr8.otel_metrics_gauge
 WHERE MetricName LIKE 'DCGM\_%'
 GROUP BY OrgId, Minute, ClusterId, NodeName, GpuUuid, GpuModel;
 
-CREATE TABLE IF NOT EXISTS orchestr8.inference_minute
+CREATE TABLE orchestr8.inference_minute
 (
     OrgId       LowCardinality(String) DEFAULT 'local',
     Minute      DateTime CODEC(Delta, ZSTD(1)),
@@ -80,7 +81,7 @@ PARTITION BY toYYYYMM(Minute)
 ORDER BY (OrgId, ClusterId, Model, Minute)
 TTL Minute + INTERVAL 13 MONTH;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS orchestr8.inference_minute_mv TO orchestr8.inference_minute AS
+CREATE MATERIALIZED VIEW orchestr8.inference_minute_mv TO orchestr8.inference_minute AS
 SELECT
     ifNull(nullIf(ResourceAttributes['orchestr8.org.id'], ''), 'local') AS OrgId,
     toStartOfMinute(TimeUnix)                  AS Minute,
@@ -94,7 +95,7 @@ FROM orchestr8.otel_metrics_histogram
 WHERE MetricName = 'vllm:time_to_first_token_seconds'
 GROUP BY OrgId, Minute, ClusterId, Model;
 
-CREATE TABLE IF NOT EXISTS orchestr8.correlations
+CREATE TABLE orchestr8.correlations
 (
     OrgId             LowCardinality(String) DEFAULT 'local',
     Id                String,
@@ -129,7 +130,7 @@ TTL toDateTime(DetectedAt) + INTERVAL 13 MONTH;
 -- covers OrgId, so one tenant can neither break another's chain nor move an
 -- entry between tenants — and sequence numbers stop leaking how active a
 -- neighbouring organisation is.
-CREATE TABLE IF NOT EXISTS orchestr8.audit_log
+CREATE TABLE orchestr8.audit_log
 (
     OrgId       LowCardinality(String) DEFAULT 'local',
     Seq         UInt64,
@@ -148,7 +149,7 @@ PARTITION BY toYYYYMM(At)
 ORDER BY (OrgId, Seq)
 TTL toDateTime(At) + INTERVAL 13 MONTH;
 
-CREATE TABLE IF NOT EXISTS orchestr8.scans
+CREATE TABLE orchestr8.scans
 (
     OrgId       LowCardinality(String) DEFAULT 'local',
     Id          String,
@@ -170,7 +171,7 @@ PARTITION BY toYYYYMM(At)
 ORDER BY (OrgId, Target, At)
 TTL toDateTime(At) + INTERVAL 13 MONTH;
 
-CREATE TABLE IF NOT EXISTS orchestr8.scan_findings
+CREATE TABLE orchestr8.scan_findings
 (
     OrgId        LowCardinality(String) DEFAULT 'local',
     ScanId       String,

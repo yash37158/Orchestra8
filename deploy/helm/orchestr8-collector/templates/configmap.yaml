@@ -75,6 +75,10 @@ data:
           - key: orchestr8.cluster.id
             value: {{ .Values.clusterId | quote }}
             action: upsert
+          # TEMPORARY, as above: the gateway will derive this from the token.
+          - key: orchestr8.org.id
+            value: {{ .Values.orgId | default "local" | quote }}
+            action: upsert
       batch:
         timeout: 5s
         send_batch_size: 8192

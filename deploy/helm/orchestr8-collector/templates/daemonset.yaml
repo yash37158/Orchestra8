@@ -1,0 +1,56 @@
+{{- if .Values.agent.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "orchestr8-collector.fullname" . }}-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "orchestr8-collector.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "orchestr8-collector.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "orchestr8-collector.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: agent
+      annotations:
+        # Restart the agents when the config changes; without this a helm
+        # upgrade silently leaves the old config running.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "orchestr8-collector.serviceAccountName" . }}
+      {{- with .Values.agent.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: collector
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--config=/etc/otel/agent.yaml"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef: { fieldPath: spec.nodeName }
+          volumeMounts:
+            - { name: config, mountPath: /etc/otel }
+          resources: {{- toYaml .Values.agent.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "orchestr8-collector.fullname" . }}
+{{- end }}

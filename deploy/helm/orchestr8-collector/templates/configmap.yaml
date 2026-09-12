@@ -1,0 +1,139 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "orchestr8-collector.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "orchestr8-collector.labels" . | nindent 4 }}
+data:
+  agent.yaml: |
+    # Agent: one per GPU node. Scrapes locally, enriches, forwards. No
+    # aggregation here — that is the gateway's job, and doing it twice is how
+    # you get metrics that disagree with themselves.
+    receivers:
+      prometheus/dcgm:
+        config:
+          scrape_configs:
+            - job_name: dcgm
+              scrape_interval: {{ .Values.scrape.interval }}
+              kubernetes_sd_configs:
+                - role: pod
+                  # Only this node's pods: the agent is a DaemonSet, so a
+                  # cluster-wide discovery would have every agent scrape every
+                  # target N times over.
+                  selectors:
+                    - role: pod
+                      field: spec.nodeName=${env:NODE_NAME}
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_label_app]
+                  regex: {{ .Values.scrape.dcgmLabel }}
+                  action: keep
+                - source_labels: [__meta_kubernetes_pod_node_name]
+                  target_label: Hostname
+
+      prometheus/inference:
+        config:
+          scrape_configs:
+            - job_name: inference
+              scrape_interval: {{ .Values.scrape.interval }}
+              kubernetes_sd_configs:
+                - role: pod
+                  selectors:
+                    - role: pod
+                      field: spec.nodeName=${env:NODE_NAME}
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_annotation_{{ .Values.scrape.inferenceAnnotation | replace "." "_" | replace "/" "_" }}]
+                  regex: "true"
+                  action: keep
+                # A DCGM exporter is not an inference engine. Without this drop,
+                # a pod carrying BOTH the exporter label and the scrape
+                # annotation is collected by both jobs — the same sample stored
+                # twice at the same timestamp, under two different Hostnames.
+                # Every count and sum for that cluster then reads 2x, and it
+                # looks like real data rather than an error.
+                - source_labels: [__meta_kubernetes_pod_label_app]
+                  regex: {{ .Values.scrape.dcgmLabel }}
+                  action: drop
+                - source_labels: [__meta_kubernetes_pod_node_name]
+                  target_label: Hostname
+                - source_labels: [__meta_kubernetes_pod_label_model]
+                  target_label: model_name
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      k8s_attributes:
+        auth_type: serviceAccount
+        filter:
+          node_from_env_var: NODE_NAME
+        extract:
+          metadata: [k8s.namespace.name, k8s.pod.name, k8s.node.name, k8s.deployment.name]
+      resource:
+        attributes:
+          - key: orchestr8.cluster.id
+            value: {{ .Values.clusterId | quote }}
+            action: upsert
+      batch:
+        timeout: 5s
+        send_batch_size: 8192
+
+    exporters:
+      otlp:
+        endpoint: {{ include "orchestr8-collector.fullname" . }}-gateway:4317
+        tls:
+          insecure: true
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [prometheus/dcgm, prometheus/inference]
+          processors: [memory_limiter, k8s_attributes, resource, batch]
+          exporters: [otlp]
+      telemetry:
+        logs: { level: {{ .Values.logLevel }} }
+
+  gateway.yaml: |
+    # Gateway: the single writer. Converts cumulative Prometheus counters to
+    # deltas here, once, so every downstream rollup is a plain sum.
+    receivers:
+      otlp:
+        protocols:
+          grpc: { endpoint: 0.0.0.0:4317 }
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      cumulative_to_delta:
+        include:
+          match_type: regexp
+          metrics: ["vllm:.*", "DCGM_FI_DEV_XID_ERRORS"]
+      batch:
+        timeout: 5s
+        send_batch_size: 8192
+
+    exporters:
+      otlp_http/orchestr8:
+        endpoint: {{ required "endpoint is required — set it from the Orchestr8 onboarding screen" .Values.endpoint | quote }}
+        {{- if or .Values.token .Values.existingSecret }}
+        headers:
+          authorization: "Bearer ${env:ORCHESTR8_TOKEN}"
+        {{- end }}
+        retry_on_failure: { enabled: true, initial_interval: 5s, max_interval: 30s }
+        sending_queue: { enabled: true, num_consumers: 4, queue_size: 1000 }
+
+    extensions:
+      health_check: { endpoint: 0.0.0.0:13133 }
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, cumulative_to_delta, batch]
+          exporters: [otlp_http/orchestr8]
+      telemetry:
+        logs: { level: {{ .Values.logLevel }} }

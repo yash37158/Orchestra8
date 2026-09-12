@@ -1,0 +1,16 @@
+Orchestr8 collector installed into namespace {{ .Release.Namespace }}.
+
+  Cluster ID: {{ .Values.clusterId }}
+  Endpoint:   {{ .Values.endpoint }}
+
+Telemetry should appear in Orchestr8 within about a minute.
+
+Check it is running:
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+If nothing arrives, the agents are the place to look first:
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/component=agent --tail=50
+
+The agent only scrapes pods labelled app={{ .Values.scrape.dcgmLabel }} for GPU
+metrics, and pods annotated {{ .Values.scrape.inferenceAnnotation }}="true" for
+inference metrics. If a workload is missing, that annotation is usually why.

@@ -1,0 +1,89 @@
+# Local development config. Same receivers, processors and exporter as the
+# production gateway (otel-collector.yaml) — the ONLY difference is service
+# discovery: static targets here, kubernetes_sd_configs there. Keeping the rest
+# identical is deliberate, so what works locally works in-cluster.
+
+receivers:
+  # Bound to all interfaces so a local Kubernetes VM can reach it. This is a
+  # DEV-ONLY posture: it exposes the receiver to the local network, which is
+  # why the in-cluster gateway sits behind a ClusterIP Service instead.
+  otlp:
+    protocols:
+      grpc: { endpoint: 0.0.0.0:4317 }
+      http: { endpoint: 0.0.0.0:4318 }
+
+  # services/devkit stands in for DCGM exporter + vLLM on a GPU node. It speaks
+  # the real exposition formats, so swapping in hardware is an address change.
+  prometheus/gpu:
+    config:
+      scrape_configs:
+        - job_name: orchestr8-devkit
+          scrape_interval: 5s
+          static_configs:
+            - targets: ["127.0.0.1:9400"]
+              labels:
+                orchestr8_cluster_id: gcp-usc1
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+
+  # Label locally-scraped telemetry with a cluster id.
+  #
+  # `insert`, NOT `upsert`: telemetry arriving over OTLP from a real cluster
+  # already carries its own orchestr8.cluster.id, and upsert silently
+  # overwrites it — every remote cluster's data then shows up under the local
+  # cluster's name, which looks exactly like "the install isn't working".
+  resource:
+    attributes:
+      - key: orchestr8.cluster.id
+        value: gcp-usc1
+        action: insert
+
+  # Prometheus counters and histograms arrive CUMULATIVE (monotonically growing
+  # since process start). Summing those across minutes in a rollup is
+  # meaningless — you get the area under a ramp, not a count. Converting to
+  # deltas at ingest means every downstream aggregate is a plain sum, and the
+  # rollup tables stay simple.
+  cumulativetodelta:
+    include:
+      match_type: regexp
+      metrics:
+        - "vllm:.*"
+        - "DCGM_FI_DEV_XID_ERRORS"
+
+  batch:
+    timeout: 5s
+    send_batch_size: 8192
+
+exporters:
+  clickhouse:
+    endpoint: tcp://127.0.0.1:9000?dial_timeout=10s
+    database: orchestr8
+    ttl: 720h
+    # The exporter owns the otel_* table DDL — it knows its own storage layout,
+    # which splits metrics by type (gauge/sum/histogram/...). schema.sql owns
+    # only the rollup layer built on top. Fighting it over DDL is how you get a
+    # silent write failure on every version bump.
+    create_schema: true
+    retry_on_failure: { enabled: true, initial_interval: 5s, max_interval: 30s }
+    sending_queue: { enabled: true, num_consumers: 4, queue_size: 1000 }
+
+extensions:
+  health_check: { endpoint: 127.0.0.1:13133 }
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [otlp, prometheus/gpu]
+      processors: [memory_limiter, resource, cumulativetodelta, batch]
+      exporters: [clickhouse]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [clickhouse]
+  telemetry:
+    logs: { level: warn }

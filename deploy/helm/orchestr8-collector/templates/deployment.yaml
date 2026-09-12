@@ -1,0 +1,77 @@
+{{- if .Values.gateway.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "orchestr8-collector.fullname" . }}-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "orchestr8-collector.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: {{ .Values.gateway.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "orchestr8-collector.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "orchestr8-collector.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: gateway
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "orchestr8-collector.serviceAccountName" . }}
+      containers:
+        - name: collector
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--config=/etc/otel/gateway.yaml"]
+          {{- if or .Values.token .Values.existingSecret }}
+          env:
+            - name: ORCHESTR8_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "orchestr8-collector.secretName" . }}
+                  key: token
+          {{- end }}
+          ports:
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: health, containerPort: 13133 }
+          livenessProbe:
+            httpGet: { path: /, port: health }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /, port: health }
+            initialDelaySeconds: 5
+          volumeMounts:
+            - { name: config, mountPath: /etc/otel }
+          resources: {{- toYaml .Values.gateway.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "orchestr8-collector.fullname" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "orchestr8-collector.fullname" . }}-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "orchestr8-collector.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "orchestr8-collector.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: gateway
+  ports:
+    - { name: otlp-grpc, port: 4317, targetPort: 4317 }
+{{- end }}

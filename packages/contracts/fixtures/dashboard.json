@@ -1,0 +1,319 @@
+{
+  "overview": {
+    "generatedAt": "2026-09-12T14:30:00.000Z",
+    "lastTelemetryAt": "2026-09-12T14:29:55.000Z",
+    "clusters": {
+      "healthy": 12,
+      "total": 15
+    },
+    "fleetUptimePct": 99.9,
+    "gpuUtilizationPct": 94.2,
+    "inferenceSloAttainmentPct": 91.4,
+    "fleetCostPerDayUsd": 351.84,
+    "openCorrelations": 2
+  },
+  "topology": {
+    "clusters": [
+      {
+        "id": "aws-use1",
+        "name": "AWS US East",
+        "provider": "aws",
+        "region": "us-east-1",
+        "status": "healthy",
+        "nodes": 12,
+        "cpuPct": 65,
+        "memoryPct": 72,
+        "uptimePct": 99.99,
+        "costPerHourUsd": 1.25
+      },
+      {
+        "id": "aws-euw1",
+        "name": "AWS EU West",
+        "provider": "aws",
+        "region": "eu-west-1",
+        "status": "healthy",
+        "nodes": 8,
+        "cpuPct": 42,
+        "memoryPct": 58,
+        "uptimePct": 99.95,
+        "costPerHourUsd": 1.05
+      },
+      {
+        "id": "gcp-usc1",
+        "name": "GCP US Central",
+        "provider": "gcp",
+        "region": "us-central1",
+        "status": "degraded",
+        "nodes": 6,
+        "cpuPct": 88,
+        "memoryPct": 76,
+        "uptimePct": 98.75,
+        "costPerHourUsd": 0.85
+      },
+      {
+        "id": "edge-bom",
+        "name": "Edge Mumbai",
+        "provider": "edge",
+        "region": "ap-south-1",
+        "status": "healthy",
+        "nodes": 3,
+        "cpuPct": 45,
+        "memoryPct": 62,
+        "uptimePct": 99.8,
+        "costPerHourUsd": 0.45
+      },
+      {
+        "id": "edge-lhr",
+        "name": "Edge London",
+        "provider": "edge",
+        "region": "eu-west-2",
+        "status": "offline",
+        "nodes": 2,
+        "cpuPct": 0,
+        "memoryPct": 0,
+        "uptimePct": 87.2,
+        "costPerHourUsd": 0.4
+      }
+    ],
+    "links": [
+      {
+        "source": "aws-use1",
+        "target": "aws-euw1",
+        "status": "healthy",
+        "latencyMs": 78
+      },
+      {
+        "source": "aws-euw1",
+        "target": "gcp-usc1",
+        "status": "degraded",
+        "latencyMs": 142
+      },
+      {
+        "source": "gcp-usc1",
+        "target": "edge-bom",
+        "status": "healthy",
+        "latencyMs": 210
+      },
+      {
+        "source": "aws-euw1",
+        "target": "edge-lhr",
+        "status": "offline",
+        "latencyMs": 0
+      }
+    ]
+  },
+  "activity": [
+    {
+      "id": "ev-1",
+      "kind": "inference",
+      "severity": "critical",
+      "title": "p95 TTFT breached SLO on llama-3.3-70b",
+      "description": "1840ms against a 1200ms target in gcp-usc1",
+      "at": "2026-09-12T14:12:00.000Z",
+      "correlationId": "corr-1"
+    },
+    {
+      "id": "ev-2",
+      "kind": "scaling",
+      "severity": "info",
+      "title": "Scaled vllm-llama-70b to 6 replicas",
+      "description": "Queue depth sustained above 40 for 5m",
+      "at": "2026-09-12T13:58:00.000Z",
+      "correlationId": null
+    },
+    {
+      "id": "ev-3",
+      "kind": "security",
+      "severity": "warning",
+      "title": "Unsigned image admitted in production",
+      "description": "Policy 'Enforce Image Signing' violated by checkout-api:2.4.1",
+      "at": "2026-09-12T13:30:00.000Z",
+      "correlationId": null
+    },
+    {
+      "id": "ev-4",
+      "kind": "error",
+      "severity": "critical",
+      "title": "Edge London lost connectivity",
+      "description": "12 sync jobs queued, last heartbeat 1h ago",
+      "at": "2026-09-12T13:15:00.000Z",
+      "correlationId": null
+    }
+  ],
+  "gpus": [
+    {
+      "uuid": "GPU-0a1b2c3d",
+      "clusterId": "gcp-usc1",
+      "nodeName": "gpu-a-04",
+      "model": "H100-SXM5-80GB",
+      "migProfile": null,
+      "utilizationPct": 99.1,
+      "memoryUsedGb": 74.2,
+      "memoryTotalGb": 80,
+      "temperatureC": 88,
+      "powerWatts": 690,
+      "throttled": true,
+      "xidErrors": 0
+    },
+    {
+      "uuid": "GPU-4e5f6a7b",
+      "clusterId": "gcp-usc1",
+      "nodeName": "gpu-a-05",
+      "model": "H100-SXM5-80GB",
+      "migProfile": null,
+      "utilizationPct": 93.4,
+      "memoryUsedGb": 68.1,
+      "memoryTotalGb": 80,
+      "temperatureC": 71,
+      "powerWatts": 612,
+      "throttled": false,
+      "xidErrors": 0
+    },
+    {
+      "uuid": "GPU-8c9d0e1f",
+      "clusterId": "aws-use1",
+      "nodeName": "gpu-b-01",
+      "model": "A100-SXM4-40GB",
+      "migProfile": "1g.10gb",
+      "utilizationPct": 61.8,
+      "memoryUsedGb": 8.4,
+      "memoryTotalGb": 10,
+      "temperatureC": 64,
+      "powerWatts": 210,
+      "throttled": false,
+      "xidErrors": 1
+    }
+  ],
+  "services": [
+    {
+      "id": "svc-llama70b",
+      "clusterId": "gcp-usc1",
+      "model": "llama-3.3-70b-instruct",
+      "engine": "vllm",
+      "replicas": 6,
+      "ttftMsP50": 620,
+      "ttftMsP95": 1840,
+      "ttftMsP99": 2910,
+      "tokensPerSecond": 1420,
+      "queueDepth": 47,
+      "batchSize": 32,
+      "kvCacheUsagePct": 91.5,
+      "errorRatePct": 0.4,
+      "ttftSloMs": 1200
+    },
+    {
+      "id": "svc-embed",
+      "clusterId": "aws-use1",
+      "model": "bge-large-en-v1.5",
+      "engine": "triton",
+      "replicas": 4,
+      "ttftMsP50": 18,
+      "ttftMsP95": 41,
+      "ttftMsP99": 77,
+      "tokensPerSecond": 9800,
+      "queueDepth": 2,
+      "batchSize": 64,
+      "kvCacheUsagePct": 12.0,
+      "errorRatePct": 0.01,
+      "ttftSloMs": 100
+    }
+  ],
+  "correlations": [
+    {
+      "id": "corr-1",
+      "detectedAt": "2026-09-12T14:12:00.000Z",
+      "updatedAt": "2026-09-12T14:12:00.000Z",
+      "status": "open",
+      "severity": "critical",
+      "summary": "p95 TTFT on llama-3.3-70b breached its 1200ms SLO because GPU-0a1b2c3d on gpu-a-04 is thermally throttling at 88C - not because traffic rose. Request rate is flat over the window.",
+      "windowStart": "2026-09-12T14:00:00.000Z",
+      "windowEnd": "2026-09-12T14:12:00.000Z",
+      "symptom": {
+        "serviceId": "svc-llama70b",
+        "model": "llama-3.3-70b-instruct",
+        "metric": "ttft_p95",
+        "observed": 1840,
+        "threshold": 1200
+      },
+      "cause": {
+        "kind": "gpu_thermal_throttle",
+        "gpuUuid": "GPU-0a1b2c3d",
+        "nodeName": "gpu-a-04",
+        "clusterId": "gcp-usc1",
+        "evidence": [
+          {
+            "text": "Temperature held above 85C for 11m preceding the breach",
+            "metric": "DCGM_FI_DEV_GPU_TEMP",
+            "subject": "GPU-0a1b2c3d",
+            "windowStart": "2026-09-12T14:00:00.000Z",
+            "windowEnd": "2026-09-12T14:12:00.000Z"
+          },
+          {
+            "text": "SM clock dropped 1980MHz to 1410MHz",
+            "metric": "DCGM_FI_DEV_SM_CLOCK",
+            "subject": "GPU-0a1b2c3d",
+            "windowStart": "2026-09-12T14:00:00.000Z",
+            "windowEnd": "2026-09-12T14:12:00.000Z"
+          },
+          {
+            "text": "Request rate flat at 340 req/min across the window",
+            "metric": "vllm:request_success_total",
+            "subject": "llama-3.3-70b-instruct",
+            "windowStart": "2026-09-12T14:00:00.000Z",
+            "windowEnd": "2026-09-12T14:12:00.000Z"
+          },
+          {
+            "text": "Sibling GPU gpu-a-05 at 71C shows no TTFT regression",
+            "metric": "DCGM_FI_DEV_GPU_TEMP",
+            "subject": "GPU-4e5f6a7b",
+            "windowStart": "2026-09-12T14:00:00.000Z",
+            "windowEnd": "2026-09-12T14:12:00.000Z"
+          }
+        ]
+      },
+      "confidence": 0.91,
+      "recommendedAction": "Drain gpu-a-04 and check chassis airflow. Rebalance the llama-3.3-70b replica onto gpu-a-05 or a cooler node to restore SLO within the hour."
+    },
+    {
+      "id": "corr-2",
+      "detectedAt": "2026-09-12T13:44:00.000Z",
+      "updatedAt": "2026-09-12T13:44:00.000Z",
+      "status": "open",
+      "severity": "warning",
+      "summary": "KV cache on llama-3.3-70b is at 91.5% and queue depth is climbing. At current growth the service will start rejecting requests in roughly 40 minutes.",
+      "windowStart": "2026-09-12T13:19:00.000Z",
+      "windowEnd": "2026-09-12T13:44:00.000Z",
+      "symptom": {
+        "serviceId": "svc-llama70b",
+        "model": "llama-3.3-70b-instruct",
+        "metric": "queue_depth",
+        "observed": 47,
+        "threshold": 40
+      },
+      "cause": {
+        "kind": "kv_cache_saturation",
+        "gpuUuid": null,
+        "nodeName": null,
+        "clusterId": "gcp-usc1",
+        "evidence": [
+          {
+            "text": "KV cache usage rose 62% to 91.5% over 25m",
+            "metric": "vllm:gpu_cache_usage_perc",
+            "subject": "llama-3.3-70b-instruct",
+            "windowStart": "2026-09-12T13:19:00.000Z",
+            "windowEnd": "2026-09-12T13:44:00.000Z"
+          },
+          {
+            "text": "No GPU backing this model is throttling",
+            "metric": null,
+            "subject": null,
+            "windowStart": "2026-09-12T13:19:00.000Z",
+            "windowEnd": "2026-09-12T13:44:00.000Z"
+          }
+        ]
+      },
+      "confidence": 0.74,
+      "recommendedAction": "Raise gpu-memory-utilization or add a replica. Investigate the v2.3.1 prompt template - longer contexts are the proximate driver."
+    }
+  ]
+}

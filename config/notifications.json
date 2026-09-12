@@ -1,0 +1,22 @@
+{
+  "_comment": "Where correlations are sent. Config, not data — it lives in the repo so a routing change is a reviewable commit, the same rule the SLO file follows. Set enabled:false or delete a destination to stop it; nothing is deleted from history.",
+  "publicUrl": "http://localhost:3000",
+  "destinations": [
+    {
+      "id": "local-webhook",
+      "kind": "webhook",
+      "url": "http://127.0.0.1:9999/hook",
+      "minSeverity": "warning",
+      "enabled": true,
+      "note": "Generic JSON. Point this at PagerDuty Events v2, Opsgenie, or any receiver."
+    },
+    {
+      "id": "slack",
+      "kind": "slack",
+      "url": "",
+      "minSeverity": "critical",
+      "enabled": false,
+      "note": "Paste an incoming-webhook URL. Only criticals by default — an alert channel that fires on warnings gets muted within a week."
+    }
+  ]
+}

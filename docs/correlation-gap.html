@@ -1,0 +1,780 @@
+<title>The Correlation Gap</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground:      #F2F5F5;
+    --surface:     #FFFFFF;
+    --surface-sub: #E7EDEC;
+    --ink:         #0E1E1D;
+    --ink-soft:    #4E5F5D;
+    --ink-faint:   #7C8C8A;
+    --rule:        #D2DCDA;
+    --accent:      #0E7C86;
+    --accent-soft: #E0F0F1;
+    --ember:       #B23C0B;
+    --ember-soft:  #FBEAE0;
+    --good:        #15803D;
+    --warn:        #A15C07;
+    --crit:        #B3261E;
+    --measure: 68ch;
+    --shadow: 0 1px 2px rgba(14,30,29,.05), 0 8px 24px -12px rgba(14,30,29,.14);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0A1312;
+      --surface:     #121D1C;
+      --surface-sub: #1A2726;
+      --ink:         #E4EDEB;
+      --ink-soft:    #9DAFAC;
+      --ink-faint:   #6E807E;
+      --rule:        #243433;
+      --accent:      #45BCC6;
+      --accent-soft: #10302F;
+      --ember:       #E8834F;
+      --ember-soft:  #2E1A11;
+      --good:        #4ADE80;
+      --warn:        #FBBF24;
+      --crit:        #F87171;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:      #0A1312;
+    --surface:     #121D1C;
+    --surface-sub: #1A2726;
+    --ink:         #E4EDEB;
+    --ink-soft:    #9DAFAC;
+    --ink-faint:   #6E807E;
+    --rule:        #243433;
+    --accent:      #45BCC6;
+    --accent-soft: #10302F;
+    --ember:       #E8834F;
+    --ember-soft:  #2E1A11;
+    --good:        #4ADE80;
+    --warn:        #FBBF24;
+    --crit:        #F87171;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 16.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px 96px; }
+  .col  { max-width: var(--measure); }
+
+  /* ---------------------------------------------------------- masthead */
+  header.masthead {
+    padding: 72px 0 40px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 56px;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 20px;
+  }
+  h1 {
+    font-family: "Instrument Serif", Georgia, serif;
+    font-weight: 400; font-size: clamp(46px, 7vw, 82px);
+    line-height: .98; letter-spacing: -.015em;
+    margin: 0 0 24px; text-wrap: balance;
+  }
+  h1 em { font-style: italic; color: var(--accent); }
+  .standfirst { font-size: 20px; line-height: 1.5; color: var(--ink-soft); max-width: 62ch; margin: 0; }
+  .byline {
+    margin-top: 28px; display: flex; flex-wrap: wrap; gap: 8px 22px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--ink-faint);
+  }
+
+  /* ---------------------------------------------------------- sections */
+  section { margin-bottom: 72px; scroll-margin-top: 24px; }
+  .sec-head { display: flex; gap: 18px; align-items: baseline; margin-bottom: 22px; }
+  .sec-num {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--accent); padding-top: 6px;
+    letter-spacing: .08em; flex: none;
+  }
+  h2 {
+    font-family: "Instrument Serif", Georgia, serif;
+    font-weight: 400; font-size: clamp(29px, 3.6vw, 40px); line-height: 1.1;
+    letter-spacing: -.01em; margin: 0; text-wrap: balance;
+  }
+  h3 {
+    font-size: 15px; font-weight: 600; letter-spacing: .01em;
+    margin: 36px 0 10px; color: var(--ink);
+  }
+  p { margin: 0 0 17px; }
+  .col > p:last-child, .col > ul:last-child { margin-bottom: 0; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  strong { font-weight: 600; }
+  code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .87em; background: var(--surface-sub);
+    padding: 1.5px 5px; border-radius: 3px; color: var(--ink);
+  }
+  ul { margin: 0 0 17px; padding-left: 20px; }
+  li { margin-bottom: 8px; }
+  li::marker { color: var(--ink-faint); }
+
+  /* ------------------------------------------------------- pull moment */
+  .thesis {
+    background: var(--ember-soft);
+    border-left: 3px solid var(--ember);
+    padding: 26px 30px; margin: 32px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .thesis p { margin: 0; font-size: 18.5px; line-height: 1.55; }
+  .thesis .src {
+    display: block; margin-top: 14px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11.5px; color: var(--ink-faint); letter-spacing: .02em;
+  }
+
+  /* ----------------------------------------------------------- figures */
+  figure { margin: 34px 0; }
+  figcaption {
+    font-size: 13px; color: var(--ink-faint); margin-top: 12px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace; line-height: 1.5;
+  }
+  .bleed { max-width: 1080px; }
+  .scroller { overflow-x: auto; }
+
+  /* ------------------------------------------------------------ tables */
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 640px; }
+  th, td { text-align: left; padding: 11px 14px; vertical-align: top; border-bottom: 1px solid var(--rule); }
+  thead th {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 500;
+    border-bottom: 1px solid var(--ink-faint);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rowname { font-weight: 600; }
+  .dim { color: var(--ink-faint); }
+  tr.hole td { background: var(--accent-soft); }
+  tr.hole .rowname { color: var(--accent); }
+
+  .mark { font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+  .mark.y { color: var(--good); }
+  .mark.n { color: var(--crit); }
+  .mark.p { color: var(--warn); }
+
+  /* ---------------------------------------------------------- pipeline */
+  .pipe { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; align-items: stretch; }
+  .stage {
+    background: var(--surface); border: 1px solid var(--rule);
+    padding: 18px 16px; position: relative;
+  }
+  .stage + .stage { border-left: none; }
+  .stage:first-child { border-radius: 6px 0 0 6px; }
+  .stage:last-child  { border-radius: 0 6px 6px 0; }
+  .stage-label {
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--accent);
+    margin-bottom: 10px;
+  }
+  .stage-title { font-weight: 600; font-size: 14.5px; margin-bottom: 8px; }
+  .stage ul { margin: 0; padding-left: 15px; }
+  .stage li { font-size: 12.5px; line-height: 1.45; color: var(--ink-soft); margin-bottom: 4px; }
+  .stage li::marker { color: var(--rule); }
+  @media (max-width: 760px) {
+    .pipe { grid-template-columns: 1fr; }
+    .stage + .stage { border-left: 1px solid var(--rule); border-top: none; }
+    .stage:first-child { border-radius: 6px 6px 0 0; }
+    .stage:last-child  { border-radius: 0 0 6px 6px; }
+  }
+
+  /* ------------------------------------------------------ decision log */
+  .decisions { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+  .decision { background: var(--surface); padding: 20px 22px; display: grid; grid-template-columns: 160px 1fr; gap: 20px; }
+  @media (max-width: 700px) { .decision { grid-template-columns: 1fr; gap: 8px; } }
+  .d-layer {
+    font-family: "IBM Plex Mono", monospace; font-size: 11px;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint);
+    padding-top: 3px;
+  }
+  .d-pick { font-weight: 600; margin-bottom: 6px; font-size: 15px; }
+  .d-pick .ver { font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 400; color: var(--ink-faint); margin-left: 6px; }
+  .d-why { font-size: 14px; color: var(--ink-soft); margin: 0 0 8px; line-height: 1.55; }
+  .d-not { font-size: 13px; color: var(--ink-faint); margin: 0; }
+  .d-not b { font-weight: 500; color: var(--ink-soft); }
+
+  /* -------------------------------------------------------- stat strip */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+  .stat { background: var(--surface); padding: 18px 18px 16px; }
+  .stat-v {
+    font-family: "Instrument Serif", Georgia, serif; font-size: 34px;
+    line-height: 1; letter-spacing: -.01em; font-variant-numeric: tabular-nums;
+    margin-bottom: 7px;
+  }
+  .stat-l { font-size: 12.5px; color: var(--ink-soft); line-height: 1.4; }
+  .stat-s { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--ink-faint); margin-top: 6px; }
+
+  /* ----------------------------------------------------------- roadmap */
+  .phases { border-left: 2px solid var(--rule); padding-left: 26px; margin: 28px 0 0; }
+  .phase { position: relative; padding-bottom: 30px; }
+  .phase:last-child { padding-bottom: 0; }
+  .phase::before {
+    content: ""; position: absolute; left: -33px; top: 5px;
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--ground); border: 2px solid var(--rule);
+  }
+  .phase.done::before { background: var(--accent); border-color: var(--accent); }
+  .phase-h { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
+  .phase-n { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); }
+  .phase-t { font-weight: 600; font-size: 16px; }
+  .tag {
+    font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: .06em;
+    text-transform: uppercase; padding: 2px 7px; border-radius: 3px;
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .phase p { font-size: 14.5px; color: var(--ink-soft); margin: 0; }
+
+  /* ------------------------------------------------------------- risks */
+  .risk { border-top: 1px solid var(--rule); padding: 18px 0; }
+  .risk:last-child { border-bottom: 1px solid var(--rule); }
+  .risk-h { display: flex; gap: 10px; align-items: baseline; margin-bottom: 5px; }
+  .sev {
+    font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: .07em;
+    text-transform: uppercase; padding: 2px 7px; border-radius: 3px; flex: none;
+  }
+  .sev.high { background: var(--ember-soft); color: var(--ember); }
+  .sev.med  { background: var(--surface-sub); color: var(--warn); }
+  .risk-t { font-weight: 600; font-size: 15px; }
+  .risk p { font-size: 14.5px; color: var(--ink-soft); margin: 0; }
+
+  footer {
+    border-top: 1px solid var(--rule); margin-top: 24px; padding-top: 26px;
+    font-size: 13px; color: var(--ink-faint);
+  }
+  footer ol { padding-left: 18px; margin: 10px 0 0; }
+  footer li { margin-bottom: 5px; font-size: 12.5px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Orchestr8 · Architecture &amp; Market Research</p>
+  <h1>A GPU at 99%<br>tells you <em>nothing</em></h1>
+  <p class="standfirst">
+    Two industries sell AI observability. One watches the silicon, one watches the model.
+    Neither can answer the question a platform team actually asks at 3am — and that
+    unanswered question is the entire product.
+  </p>
+  <div class="byline">
+    <span>12 September 2026</span>
+    <span>Hybrid infra + AI-workload observability</span>
+    <span>Next.js · Go · ClickHouse · OpenTelemetry</span>
+  </div>
+</header>
+
+<!-- ============================================================= 01 -->
+<section id="gap">
+  <div class="sec-head"><span class="sec-num">01</span><h2>The gap worth building into</h2></div>
+  <div class="col">
+    <p>
+      Orchestr8's screens currently show Kubernetes clusters, edge fleets, security policy and
+      AI recommendations. Calling that an "AI observability platform" is only true if you pick
+      the right definition of the term — because in 2026 there are two, and they barely overlap.
+    </p>
+    <p>
+      <strong>Infrastructure observability</strong> (Datadog, Dynatrace, Grafana, New Relic) watches
+      nodes, pods, metrics and traces. It models a GPU as a device with a utilization percentage.
+      <strong>LLM observability</strong> (Langfuse, LangSmith, Arize, Braintrust, Helicone) watches
+      prompts, tokens, evals and cost. It models inference as an API call and has no idea what
+      hardware served it.
+    </p>
+
+    <div class="thesis">
+      <p>
+        GPU utilization at 95% tells you nothing about model quality, and memory bandwidth can
+        look healthy while inference latency silently degrades. GPU monitoring and LLM
+        observability are complementary, not substitutes.
+      </p>
+      <span class="src">— AI Infrastructure Observability 2026; Towards AI, <i>The AI Inference Stack in 2026</i></span>
+    </div>
+
+    <p>
+      The failure mode both camps miss is the common one. A GPU pinned at 99% while the request
+      queue grows and p95 time-to-first-token climbs is not healthy — it is <em>impressively busy
+      and failing its users</em>. The infra tool reports a green node. The LLM tool reports slow
+      responses with no cause. Somebody joins the two by hand, in Grafana, at 3am.
+    </p>
+    <p>
+      <strong>That join is the product.</strong> Everything else on the roadmap — dashboards,
+      topology, policy — is table stakes that incumbents already ship better. The defensible
+      thing Orchestr8 can own is the sentence that comes out the other side:
+      <em>"p95 TTFT breached because GPU-0a1b2c3d is thermally throttling, not because traffic
+      rose."</em>
+    </p>
+  </div>
+
+  <figure class="bleed">
+    <div class="scroller">
+    <table>
+      <thead>
+        <tr>
+          <th>Category</th><th>Representative</th>
+          <th>GPU silicon</th><th>Inference SLO</th><th>Token cost</th><th>Correlates them</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="rowname">Infra APM</td><td class="dim">Datadog, Dynatrace, New Relic</td>
+          <td><span class="mark p">partial</span></td><td><span class="mark n">no</span></td>
+          <td><span class="mark p">partial</span></td><td><span class="mark n">no</span></td>
+        </tr>
+        <tr>
+          <td class="rowname">LLM observability</td><td class="dim">Langfuse, LangSmith, Arize, Helicone</td>
+          <td><span class="mark n">no</span></td><td><span class="mark y">yes</span></td>
+          <td><span class="mark y">yes</span></td><td><span class="mark n">no</span></td>
+        </tr>
+        <tr>
+          <td class="rowname">GPU monitoring</td><td class="dim">DCGM + Prometheus + Grafana (DIY)</td>
+          <td><span class="mark y">yes</span></td><td><span class="mark n">no</span></td>
+          <td><span class="mark n">no</span></td><td><span class="mark n">no</span></td>
+        </tr>
+        <tr>
+          <td class="rowname">GPU orchestration</td><td class="dim">Run:ai, Exostellar</td>
+          <td><span class="mark y">yes</span></td><td><span class="mark p">partial</span></td>
+          <td><span class="mark n">no</span></td><td><span class="mark n">no</span></td>
+        </tr>
+        <tr class="hole">
+          <td class="rowname">Orchestr8</td><td class="dim">the wedge</td>
+          <td><span class="mark y">yes</span></td><td><span class="mark y">yes</span></td>
+          <td><span class="mark y">yes</span></td><td><span class="mark y">the product</span></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <figcaption>
+      Nobody in the first four rows owns the last column. Each has the data for one half and
+      structurally cannot see the other — different agents, different storage, different buyer.
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================= 02 -->
+<section id="market">
+  <div class="sec-head"><span class="sec-num">02</span><h2>Is the market real</h2></div>
+  <div class="col">
+    <p>
+      Yes, and it is being funded now. The numbers below are the ones that matter for
+      positioning — market size proves the category, the Kubernetes figure proves the
+      deployment substrate, and the funding proves buyers are paying.
+    </p>
+  </div>
+
+  <figure class="bleed">
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-v">$2.69B</div>
+        <div class="stat-l">LLM observability market, 2026</div>
+        <div class="stat-s">→ $9.26B by 2030 · 36.2% CAGR</div>
+      </div>
+      <div class="stat">
+        <div class="stat-v">66%</div>
+        <div class="stat-l">of orgs running GenAI inference use Kubernetes</div>
+        <div class="stat-s">CNCF Annual Survey 2026</div>
+      </div>
+      <div class="stat">
+        <div class="stat-v">$70M</div>
+        <div class="stat-l">raised by Arize, the best-funded pure play</div>
+        <div class="stat-s">500+ customers · $30K–500K/yr contracts</div>
+      </div>
+      <div class="stat">
+        <div class="stat-v">7</div>
+        <div class="stat-l">MIG slices a single H100 partitions into</div>
+        <div class="stat-s">each needs its own SLO tracked</div>
+      </div>
+    </div>
+    <figcaption>
+      The Kubernetes number is the important one for Orchestr8: it means the existing
+      multi-cluster UI is not a detour from AI observability, it is the substrate AI
+      observability runs on.
+    </figcaption>
+  </figure>
+
+  <div class="col">
+    <h3>Who is already funded</h3>
+    <p>
+      Langfuse ($4M, YC, 24k GitHub stars) moved its entire product to MIT in June 2025 and was
+      <strong>acquired by ClickHouse</strong> — a strong signal for the storage decision in §4.
+      LangSmith ($25M, 100k+ developers), Helicone ($2M, YC), and Arize ($70M) fill out the
+      LLM camp. Every one of them is blind below the API call.
+    </p>
+    <p>
+      Pricing anchors: Langfuse Core $29/mo and cloud tiers $59–$499; Braintrust Pro $249/mo;
+      Arize $30K–$500K/yr; Datadog roughly $120/day for LLM span monitoring <em>on top of</em>
+      existing APM spend. That last figure is the wedge's commercial argument — the incumbent
+      charges a premium for the half of the picture it can see.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================= 03 -->
+<section id="shape">
+  <div class="sec-head"><span class="sec-num">03</span><h2>The shape of the system</h2></div>
+  <div class="col">
+    <p>
+      Three deployables, split on where they must run rather than on taste. The collector must
+      sit next to the hardware. The API must sit next to the data. The UI must sit next to the
+      user. Nothing else earns a service boundary yet.
+    </p>
+  </div>
+
+  <figure class="bleed">
+    <div class="pipe">
+      <div class="stage">
+        <div class="stage-label">Source</div>
+        <div class="stage-title">The two halves</div>
+        <ul>
+          <li>DCGM exporter — temp, SM clock, power, XID, MIG slice</li>
+          <li>vLLM <code>/metrics</code> — queue depth, KV cache, TTFT</li>
+          <li>OTel GenAI spans — model, tokens, finish reason</li>
+          <li>kube-state — pods, nodes, events</li>
+        </ul>
+      </div>
+      <div class="stage">
+        <div class="stage-label">Ingest</div>
+        <div class="stage-title">orchestr8-collector</div>
+        <ul>
+          <li>Agent DaemonSet scrapes locally, enriches with k8s metadata</li>
+          <li>Gateway tail-samples: keep all errors and slow calls, 10% baseline</li>
+          <li><code>memory_limiter</code> first in the chain</li>
+        </ul>
+      </div>
+      <div class="stage">
+        <div class="stage-label">Store + reason</div>
+        <div class="stage-title">ClickHouse</div>
+        <ul>
+          <li>Raw spans and metrics, 30d TTL</li>
+          <li>Materialized rollups per minute, 13mo TTL</li>
+          <li>Correlation engine joins GPU minute ↔ inference minute</li>
+        </ul>
+      </div>
+      <div class="stage">
+        <div class="stage-label">Serve</div>
+        <div class="stage-title">orchestr8-api → web</div>
+        <ul>
+          <li>Go query API, contract-validated</li>
+          <li>Next.js server components, no client fetching</li>
+          <li>Correlations rendered with evidence and confidence</li>
+        </ul>
+      </div>
+    </div>
+    <figcaption>
+      The correlation engine is the only box a competitor cannot copy by adding an exporter.
+      It needs both halves in one store with a shared time axis — which is precisely why
+      the storage choice in §4 is load-bearing rather than a preference.
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================= 04 -->
+<section id="stack">
+  <div class="sec-head"><span class="sec-num">04</span><h2>Stack decisions, and what they beat</h2></div>
+  <div class="col">
+    <p>
+      Each row is a choice with a rejected alternative, because a stack defended only by what
+      it includes is not defended at all.
+    </p>
+  </div>
+
+  <div class="decisions bleed" style="margin-top:28px">
+    <div class="decision">
+      <div class="d-layer">Wire format</div>
+      <div>
+        <div class="d-pick">OpenTelemetry <span class="ver">semconv v1.40.0 · GenAI still experimental</span></div>
+        <p class="d-why">
+          <code>gen_ai.request.model</code>, <code>gen_ai.usage.input_tokens</code>,
+          <code>gen_ai.response.finish_reasons</code> give token cost and latency a vendor-neutral
+          shape. OTel has graduated CNCF; instrumenting against it means customers can adopt
+          Orchestr8 without ripping out what they have — the single biggest adoption lever a
+          newcomer has against Datadog.
+        </p>
+        <p class="d-not"><b>Not:</b> a proprietary SDK. It would be faster to ship and would
+          cap the company at whoever tolerates lock-in. Set <code>OTEL_SEMCONV_STABILITY_OPT_IN</code>
+          to dual-emit while the conventions stabilise.</p>
+      </div>
+    </div>
+
+    <div class="decision">
+      <div class="d-layer">Ingest</div>
+      <div>
+        <div class="d-pick">OTel Collector, agent + gateway <span class="ver">contrib distro</span></div>
+        <p class="d-why">
+          One collector handles tens of thousands of spans/sec; millions needs the tiered split.
+          Agents stay dumb and local; the gateway does tail sampling and is the single writer to
+          ClickHouse. Kafka slots between them when spikes outgrow the queue — later, not now.
+        </p>
+        <p class="d-not"><b>Not:</b> writing a custom Go collector. The contrib distro already
+          has the DCGM scrape, the k8s attribute processor and the ClickHouse exporter. Building
+          those again is months of work to arrive at the same place.</p>
+      </div>
+    </div>
+
+    <div class="decision">
+      <div class="d-layer">Storage</div>
+      <div>
+        <div class="d-pick">ClickHouse <span class="ver">the load-bearing choice</span></div>
+        <p class="d-why">
+          This product's natural key is <code>gpu_uuid × model × pod × request_id</code> —
+          high cardinality by definition. Prometheus creates a new series per label combination,
+          so a single high-cardinality label can multiply the bill overnight. ClickHouse stores
+          those as columns and compresses 10–20×, which is what makes keeping 100% of the data
+          affordable. That ClickHouse acquired Langfuse says the category converged here already.
+        </p>
+        <p class="d-not"><b>Not:</b> Prometheus + Thanos. Excellent for node metrics, structurally
+          wrong for per-request dimensions. Teams running Prometheus/Grafana at mid-scale report
+          ~$450K/yr once engineering overhead is counted.</p>
+      </div>
+    </div>
+
+    <div class="decision">
+      <div class="d-layer">Query API</div>
+      <div>
+        <div class="d-pick">Go <span class="ver">net/http, no framework</span></div>
+        <p class="d-why">
+          Same language as the collector ecosystem, trivial static binaries, and the concurrency
+          model suits fan-out queries. The API is thin — ClickHouse does the aggregation, Go
+          shapes the response and enforces the contract.
+        </p>
+        <p class="d-not"><b>Not:</b> FastAPI. Fine for the correlation engine's ML work later,
+          wrong for the hot query path. Not a framework either — four endpoints do not need one.</p>
+      </div>
+    </div>
+
+    <div class="decision">
+      <div class="d-layer">Frontend</div>
+      <div>
+        <div class="d-pick">Next.js server components <span class="ver">keep what exists</span></div>
+        <p class="d-why">
+          Roughly 70% of the current UI survives the pivot. Fetching in server components means
+          no client data library, no loading spinner, no <code>useEffect</code> — and the contract
+          is validated on the server before a component sees it.
+        </p>
+        <p class="d-not"><b>Not:</b> React Query or SWR. Nothing on these pages needs client-side
+          cache invalidation yet. Add it when a live-streaming view actually demands it.</p>
+      </div>
+    </div>
+
+    <div class="decision">
+      <div class="d-layer">Correlation</div>
+      <div>
+        <div class="d-pick">Rules first, models later <span class="ver">deliberately boring</span></div>
+        <p class="d-why">
+          The first release should ship maybe eight hand-written rules — thermal throttle, KV cache
+          saturation, XID error, node pressure, traffic surge, model rollout. They are explainable,
+          debuggable, and need no training data, which a new product does not have. Every verdict
+          carries its evidence list and a confidence number the user can argue with.
+        </p>
+        <p class="d-not"><b>Not:</b> an LLM-as-judge or anomaly model on day one. An unexplainable
+          verdict at 3am is worse than no verdict; it costs trust you only get to spend once.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================= 05 -->
+<section id="econ">
+  <div class="sec-head"><span class="sec-num">05</span><h2>Unit economics decide the architecture</h2></div>
+  <div class="col">
+    <p>
+      Observability businesses die on storage cost, not on features. Three decisions keep the
+      margin, and all three are architectural rather than commercial.
+    </p>
+    <p>
+      <strong>Tail sampling, not head sampling.</strong> Keep 100% of errored and slow spans,
+      10% of the boring ones. The spans you drop are the ones nobody queries; the spans that
+      explain an incident are kept in full.
+    </p>
+    <p>
+      <strong>Tiered retention.</strong> Raw GenAI spans are the largest line item and live 30
+      days. The per-minute rollups the dashboard actually reads live 13 months and cost almost
+      nothing — a year-over-year comparison reads the rollup, never the raw table.
+    </p>
+    <p>
+      <strong>Aggregate at write time.</strong> A dashboard load should be a key lookup against
+      a materialized view, not a scan of a month of spans. One caveat worth stating because it
+      is a common and silent bug: store a <em>quantile sketch</em>, not a pre-computed p95.
+      Averaging p95s across windows produces a number that is simply wrong.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================= 06 -->
+<section id="business">
+  <div class="sec-head"><span class="sec-num">06</span><h2>Business model</h2></div>
+  <div class="col">
+    <p>
+      Open-core is the dominant pattern in this category and the only realistic route to
+      adoption against incumbents with sales teams. The split that works — Langfuse, PostHog,
+      Grafana all landed here — is <strong>product features open, operational features
+      commercial</strong>.
+    </p>
+    <p>
+      Put tracing, GPU and inference collection, correlation rules, dashboards and alerting
+      under MIT. Keep SSO/SCIM, audit logs, project-level RBAC, and SLAs commercial. The
+      instinct to hold back the correlation engine is the wrong one: it is the reason anyone
+      tries the product, and a self-hosting team that cannot see its value never converts.
+    </p>
+    <p>
+      Meter on <strong>GPU-hours observed</strong> rather than seats or ingested gigabytes.
+      It tracks the customer's own cost base, it cannot be gamed by dropping telemetry, and it
+      aligns the bill with the thing the product saves money on. Gigabyte pricing actively
+      punishes customers for instrumenting more, which is the opposite of what you want.
+    </p>
+  </div>
+
+  <figure class="bleed">
+    <div class="scroller">
+    <table>
+      <thead><tr><th>Tier</th><th>Price</th><th>Shape</th><th>Benchmarked against</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="rowname">Self-hosted</td><td class="num">$0 · MIT</td>
+          <td>Full product. No seat caps, no retention cap.</td>
+          <td class="dim">Langfuse MIT — the reason it has 24k stars</td>
+        </tr>
+        <tr>
+          <td class="rowname">Cloud Starter</td><td class="num">$49/mo</td>
+          <td>Up to ~50 GPU-hours/day, 30d retention.</td>
+          <td class="dim">Langfuse Core $29 · Braintrust entry</td>
+        </tr>
+        <tr>
+          <td class="rowname">Cloud Team</td><td class="num">$399/mo</td>
+          <td>13mo rollups, alerting, unlimited users.</td>
+          <td class="dim">Langfuse Pro $199 · Braintrust Pro $249</td>
+        </tr>
+        <tr>
+          <td class="rowname">Enterprise</td><td class="num">$2.5K+/mo</td>
+          <td>SSO/SCIM, audit log, RBAC, SLA, BYOC.</td>
+          <td class="dim">Langfuse Ent $2,499 · Arize $30K–500K/yr</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <figcaption>
+      Deliberately undercutting Arize while landing above Langfuse: the product does strictly
+      more than an LLM tracer and strictly less than a full APM suite.
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================= 07 -->
+<section id="roadmap">
+  <div class="sec-head"><span class="sec-num">07</span><h2>Where the build stands</h2></div>
+  <div class="col">
+    <p>
+      Phase 0 is done and running. The dashboard is no longer hardcoded — it renders from a
+      Go service over a validated contract, and fails loudly with an error state when that
+      service is down rather than quietly showing invented numbers.
+    </p>
+  </div>
+
+  <div class="phases">
+    <div class="phase done">
+      <div class="phase-h"><span class="phase-n">Phase 0</span><span class="phase-t">Separate and contract</span><span class="tag">shipped</span></div>
+      <p>
+        Monorepo split into <code>apps/web</code>, <code>services/api</code>,
+        <code>services/collector</code>, <code>packages/contracts</code>. Zod schema and Go structs
+        validate the same golden fixtures, so cross-language drift fails a test. Dashboard reads
+        the API; six of nine screens still hold hardcoded arrays.
+      </p>
+    </div>
+    <div class="phase">
+      <div class="phase-h"><span class="phase-n">Phase 1</span><span class="phase-t">Make one signal real</span></div>
+      <p>
+        Stand up ClickHouse and the collector against a single GPU node running vLLM. Replace
+        the fixture read in <code>loadDashboard()</code> with the queries in
+        <code>schema.sql</code>. One real metric beats nine fake screens.
+      </p>
+    </div>
+    <div class="phase">
+      <div class="phase-h"><span class="phase-n">Phase 2</span><span class="phase-t">The correlation engine</span></div>
+      <p>
+        Eight rules joining <code>gpu_minute</code> to <code>inference_minute</code>. This is the
+        demo that wins a viva and the feature that wins a customer — build it before the
+        remaining screens.
+      </p>
+    </div>
+    <div class="phase">
+      <div class="phase-h"><span class="phase-n">Phase 3</span><span class="phase-t">Migrate the rest</span></div>
+      <p>
+        Extend the contract to clusters, edge, security and settings. Each screen moves from
+        hardcoded array to endpoint using the pattern Phase 0 established.
+      </p>
+    </div>
+    <div class="phase">
+      <div class="phase-h"><span class="phase-n">Phase 4</span><span class="phase-t">Close the loop</span></div>
+      <p>
+        Act on correlations — drain a throttling node, rebalance a replica — through GitOps
+        rather than direct cluster writes, so every automated action is reviewable and revertible.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================= 08 -->
+<section id="risks">
+  <div class="sec-head"><span class="sec-num">08</span><h2>What could sink it</h2></div>
+
+  <div class="risk">
+    <div class="risk-h"><span class="sev high">High</span><span class="risk-t">Datadog ships this as a feature</span></div>
+    <p>
+      They already have the agent on every node and the customer relationship. The defence is
+      not technology, it is focus and price: they charge ~$120/day for LLM spans on top of APM,
+      and correlation is a footnote in their roadmap rather than their reason to exist.
+    </p>
+  </div>
+  <div class="risk">
+    <div class="risk-h"><span class="sev high">High</span><span class="risk-t">Correlations that are confidently wrong</span></div>
+    <p>
+      A platform team forgives a missed incident and never forgives being sent to drain a
+      healthy node. Hence rules before models, evidence on every verdict, and a visible
+      confidence score. Measure precision, not recall, for the first year.
+    </p>
+  </div>
+  <div class="risk">
+    <div class="risk-h"><span class="sev med">Medium</span><span class="risk-t">GenAI semantic conventions are still experimental</span></div>
+    <p>
+      semconv v1.40.0 shipped February 2026 with GenAI attributes not yet stable. Dual-emit via
+      <code>OTEL_SEMCONV_STABILITY_OPT_IN</code> and isolate attribute names behind the
+      materialized-column layer so a rename is a migration, not a rewrite.
+    </p>
+  </div>
+  <div class="risk">
+    <div class="risk-h"><span class="sev med">Medium</span><span class="risk-t">No GPU to develop against</span></div>
+    <p>
+      The whole thesis rests on telemetry from hardware a student project rarely has. Mitigate
+      with a DCGM simulator or a few hours of rented A100 time to capture a real trace once,
+      then replay it. A recorded real trace is worth more than any amount of synthetic data.
+    </p>
+  </div>
+</section>
+
+<footer>
+  <strong>Sources.</strong> Market sizing, competitive and pricing data gathered September 2026.
+  <ol>
+    <li>Towards AI — <i>The AI Inference Stack in 2026: GPUs, KV Caches, Routing, and Kubernetes</i></li>
+    <li>AI-Infra-Link — <i>AI Infrastructure Observability 2026: Beyond CPU &amp; Memory</i></li>
+    <li>CNCF Annual Survey 2026, via DEV — <i>AI Workloads Are Reshaping Kubernetes in 2026</i></li>
+    <li>OpenTelemetry — <i>Inside the LLM Call: GenAI Observability with OpenTelemetry</i>; semconv v1.40.0</li>
+    <li>ClickHouse — <i>What is observability in 2026?</i> and <i>ClickHouse vs Prometheus for High Cardinality</i></li>
+    <li>MarkTechPost — <i>Top LLM Observability and Evaluation Platforms in 2026</i>; Arize AI observability pricing</li>
+    <li>DEV — <i>Langfuse Pricing Teardown 2026</i>; NVIDIA DCGM Exporter documentation</li>
+  </ol>
+</footer>
+
+</div>

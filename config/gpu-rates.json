@@ -1,0 +1,14 @@
+{
+  "_comment": "GPU-hour rates used for cost attribution. Config, not telemetry — it lives in the repo so a price change is a reviewable commit, the same rule the SLO and notification files follow. Rates are matched by substring against the DCGM modelName, longest match wins, so 'H100-SXM5' beats 'H100'.",
+  "currency": "USD",
+  "defaultPerHour": 1.0,
+  "rates": {
+    "H100": 2.99,
+    "A100-SXM4-80GB": 1.89,
+    "A100": 1.35,
+    "L40S": 1.15,
+    "A10G": 0.75,
+    "T4": 0.35
+  },
+  "note": "Approximate on-demand list prices. Replace with your committed-use or reserved rates — an attribution built on list price overstates what you actually pay."
+}

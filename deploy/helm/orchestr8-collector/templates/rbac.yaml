@@ -1,0 +1,33 @@
+{{- if .Values.rbac.create }}
+# Read-only, and only the resources the collector actually needs to discover
+# scrape targets and attach pod metadata. An observability agent has no business
+# holding write permissions on a cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "orchestr8-collector.fullname" . }}
+  labels:
+    {{- include "orchestr8-collector.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, nodes, nodes/metrics, namespaces, endpoints, services]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, daemonsets, statefulsets, replicasets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "orchestr8-collector.fullname" . }}
+  labels:
+    {{- include "orchestr8-collector.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "orchestr8-collector.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "orchestr8-collector.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

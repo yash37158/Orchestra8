@@ -1,0 +1,8 @@
+apiVersion: v2
+name: orchestr8-collector
+description: Ships GPU and inference telemetry from a Kubernetes cluster to Orchestr8.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords: [observability, gpu, opentelemetry, inference]
+home: https://github.com/yash37158/orchestr8

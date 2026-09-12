@@ -1,0 +1,134 @@
+# orchestr8-collector — the ingest side.
+#
+# Deployed twice, per the standard agent/gateway split:
+#   agent   : DaemonSet on every node. Scrapes local DCGM + inference engines,
+#             enriches with k8s metadata, forwards. Cheap, no aggregation.
+#   gateway : Deployment, horizontally scaled. Tail sampling, batching, the
+#             single writer to ClickHouse.
+# This file is the gateway config; the agent config is the same minus the
+# clickhouse exporter, pointing at the gateway over OTLP instead.
+
+receivers:
+  # GenAI spans from instrumented apps. The OTel GenAI semantic conventions
+  # (gen_ai.request.model, gen_ai.usage.*_tokens) land here — this is how token
+  # spend and TTFT get attributed to a model without vendor lock-in.
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 16
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # GPU silicon. DCGM exporter runs as a DaemonSet on GPU nodes (port 9400).
+  prometheus/gpu:
+    config:
+      scrape_configs:
+        - job_name: dcgm
+          scrape_interval: 10s
+          kubernetes_sd_configs: [{ role: pod }]
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_label_app]
+              regex: dcgm-exporter
+              action: keep
+            - source_labels: [__meta_kubernetes_pod_node_name]
+              target_label: k8s_node_name
+
+  # Inference engine internals. vLLM exposes queue depth, KV cache usage and
+  # TTFT histograms that DCGM cannot see and APM does not model.
+  prometheus/inference:
+    config:
+      scrape_configs:
+        - job_name: vllm
+          scrape_interval: 10s
+          kubernetes_sd_configs: [{ role: pod }]
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_annotation_orchestr8_io_scrape]
+              regex: "true"
+              action: keep
+            - source_labels: [__meta_kubernetes_pod_label_model]
+              target_label: model
+
+processors:
+  # Bound memory before anything else in the chain. Without this the collector
+  # is the first thing to OOM under a traffic spike, taking observability down
+  # exactly when it is needed.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+
+  k8sattributes:
+    auth_type: serviceAccount
+    extract:
+      metadata: [k8s.namespace.name, k8s.pod.name, k8s.node.name, k8s.deployment.name]
+
+  resourcedetection:
+    detectors: [env, system, gcp, eks]
+    timeout: 5s
+
+  # Keep every errored or slow LLM call, sample the boring ones. Full-fidelity
+  # GenAI spans are the single largest cost line in this architecture.
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 100000
+    policies:
+      - name: errors
+        type: status_code
+        status_code: { status_codes: [ERROR] }
+      - name: slow
+        type: latency
+        latency: { threshold_ms: 1000 }
+      - name: baseline
+        type: probabilistic
+        probabilistic: { sampling_percentage: 10 }
+
+  # Prometheus scrapes are cumulative; convert at ingest so every rollup
+  # downstream is a plain sum. See otel-collector.local.yaml for the reasoning.
+  cumulativetodelta:
+    include:
+      match_type: regexp
+      metrics:
+        - "vllm:.*"
+        - "DCGM_FI_DEV_XID_ERRORS"
+
+  batch:
+    timeout: 5s
+    send_batch_size: 10000
+    send_batch_max_size: 20000
+
+exporters:
+  clickhouse:
+    endpoint: tcp://clickhouse:9000?dial_timeout=10s
+    database: orchestr8
+    username: ${env:CLICKHOUSE_USER}
+    password: ${env:CLICKHOUSE_PASSWORD}
+    ttl: 720h  # 30d hot. Longer retention belongs in object storage, not here.
+    logs_table_name: otel_logs
+    traces_table_name: otel_traces
+    metrics_table_name: otel_metrics
+    create_schema: false  # schema.sql owns DDL; the collector must not drift it
+    retry_on_failure: { enabled: true, initial_interval: 5s, max_interval: 30s }
+    sending_queue: { enabled: true, num_consumers: 10, queue_size: 10000 }
+
+extensions:
+  health_check: { endpoint: 0.0.0.0:13133 }
+  pprof: { endpoint: 0.0.0.0:1777 }
+
+service:
+  extensions: [health_check, pprof]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, k8sattributes, resourcedetection, tail_sampling, batch]
+      exporters: [clickhouse]
+    metrics:
+      receivers: [otlp, prometheus/gpu, prometheus/inference]
+      processors: [memory_limiter, k8sattributes, resourcedetection, cumulativetodelta, batch]
+      exporters: [clickhouse]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, k8sattributes, batch]
+      exporters: [clickhouse]
+  telemetry:
+    metrics: { level: detailed }

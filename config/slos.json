@@ -1,0 +1,16 @@
+{
+  "_comment": "Service level objectives. This file is the single source of truth for every threshold the correlation engine compares against. It lives in the repo on purpose: an SLO change is a reviewable commit, not a click in a UI with no audit trail.",
+  "defaults": {
+    "ttftP95Ms": 1200
+  },
+  "models": {
+    "llama-3.3-70b-instruct": {
+      "ttftP95Ms": 1200,
+      "note": "Interactive chat path. Users notice above ~1.2s."
+    },
+    "bge-large-en-v1.5": {
+      "ttftP95Ms": 100,
+      "note": "Embedding service on the ingest hot path; two orders of magnitude tighter than chat."
+    }
+  }
+}

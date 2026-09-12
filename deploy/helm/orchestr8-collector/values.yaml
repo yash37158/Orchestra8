@@ -1,0 +1,56 @@
+# The only value an operator must set. Everything else has a working default —
+# onboarding fails when a chart asks fifteen questions on the first screen.
+clusterId: ""
+
+# Where telemetry is sent. The onboarding flow fills this in.
+endpoint: ""
+# Token for that endpoint, stored in a Secret rather than inlined into the
+# DaemonSet's environment where it would show up in `kubectl describe`.
+token: ""
+existingSecret: ""
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: "0.160.0"
+  pullPolicy: IfNotPresent
+
+# The agent runs on every GPU node and scrapes locally. Node-local scraping
+# keeps DCGM traffic off the cluster network entirely.
+agent:
+  enabled: true
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+  # Only schedule where there are GPUs to watch.
+  nodeSelector:
+    {}
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+
+# The gateway batches and is the single writer downstream.
+gateway:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
+# Collector log level. warn in normal operation; debug when a scrape target
+# is not being discovered and you need the receiver to say why.
+logLevel: warn
+
+scrape:
+  interval: 15s
+  # DCGM exporter, conventionally a DaemonSet on port 9400.
+  dcgmLabel: dcgm-exporter
+  dcgmPort: "9400"
+  # Inference engines opt in with an annotation rather than being guessed at.
+  inferenceAnnotation: orchestr8.io/scrape
+
+rbac:
+  create: true
+serviceAccount:
+  create: true
+  name: ""

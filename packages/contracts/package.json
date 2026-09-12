@@ -1,0 +1,13 @@
+{
+  "name": "@orchestr8/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "verify": "node --experimental-strip-types --no-warnings verify.mjs"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  }
+}

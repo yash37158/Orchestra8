@@ -1,0 +1,45 @@
+# Local stack. Brings up the real ingest path so the dashboard is fed by
+# telemetry rather than by a constant in a .tsx file.
+#
+#   docker compose up -d          # clickhouse + collector
+#   cd services/api && go run .   # api on :8080
+#   cd apps/web && npm run dev    # ui on :3000
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3
+    environment:
+      CLICKHOUSE_USER: orchestr8
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-localdev}
+      CLICKHOUSE_DB: orchestr8
+    ports: ["8123:8123", "9000:9000"]
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      # Applied on first boot only. Re-running DDL after that is a migration,
+      # not a bootstrap — treat it as one.
+      - ./services/api/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.160.0
+    command: ["--config=/etc/otel/config.yaml"]
+    environment:
+      CLICKHOUSE_USER: orchestr8
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-localdev}
+    volumes:
+      - ./services/collector/otel-collector.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC — GenAI spans land here
+      - "4318:4318"   # OTLP HTTP
+      - "13133:13133" # health
+    depends_on:
+      clickhouse: { condition: service_healthy }
+
+volumes:
+  clickhouse-data:

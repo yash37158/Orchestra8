@@ -50,9 +50,15 @@ func main() {
 		docker: env("ORCHESTR8_DOCKER_CONFIG", "../../.localdev/dockerconfig"),
 	}
 
-	// Where an in-cluster gateway ships telemetry: the collector's OTLP HTTP
-	// receiver, which is the only component that writes to ClickHouse.
-	apiBase := env("ORCHESTR8_OTLP_ENDPOINT", "http://host.lima.internal:4318")
+	// The control plane decides who a collector is. Opening it never fails
+	// and never blocks: a cold Postgres must not take the read API down with
+	// it, so connection problems surface per-request as a 503 instead.
+	ctrl := newControl(env("ORCHESTR8_CONTROL_DSN", "postgres://localhost:5432/orchestr8?sslmode=disable"))
+
+	// Where an in-cluster gateway ships telemetry: the ingest gateway below,
+	// not the collector. The collector's own OTLP port is bound to loopback so
+	// there is no way around the token check.
+	apiBase := env("ORCHESTR8_INGEST_ENDPOINT", "http://host.lima.internal:4319")
 	rates := newRateCard(env("ORCHESTR8_RATES_FILE", "../../config/gpu-rates.json"))
 	mux.HandleFunc("/v1/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		handleDashboard(w, r, ch, slos, rates, aud)
@@ -63,7 +69,9 @@ func main() {
 	})
 	mux.HandleFunc("/v1/clusters", func(w http.ResponseWriter, r *http.Request) { handleClusters(w, r, ch, rates) })
 
-	mux.HandleFunc("/v1/onboarding/connect", func(w http.ResponseWriter, r *http.Request) { handleConnect(w, r, apiBase) })
+	mux.HandleFunc("/v1/onboarding/connect", func(w http.ResponseWriter, r *http.Request) {
+		handleConnect(w, r, ctrl, apiBase)
+	})
 	mux.HandleFunc("/v1/onboarding/status", func(w http.ResponseWriter, r *http.Request) { handleOnboardingStatus(w, r, ch) })
 	mux.HandleFunc("/v1/slos", func(w http.ResponseWriter, r *http.Request) { handleSLOUpsert(w, r, slos, aud) })
 
@@ -132,6 +140,28 @@ func main() {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+	// Ingest listens on its own port. It is the write path, it is the only
+	// thing reachable from a customer's cluster, and it authenticates
+	// differently from the read API — sharing a port would mean one mistake in
+	// routing exposes one to the other.
+	//
+	// ponytail: same process for now. Split into its own binary when ingest
+	// throughput starts competing with query latency, not before.
+	gw := newGateway(ctrl, env("ORCHESTR8_COLLECTOR_OTLP", "http://127.0.0.1:4318"),
+		env("ORCHESTR8_COLLECTOR_SECRET_FILE", "../../.localdev/collector.secret"))
+	ingest := &http.Server{
+		Addr:              env("ORCHESTR8_INGEST_ADDR", ":4319"),
+		Handler:           gw.routes(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	go func() {
+		log.Printf("orchestr8-ingest listening on %s -> %s", ingest.Addr, gw.upstream)
+		log.Fatal(ingest.ListenAndServe())
+	}()
+
 	log.Printf("orchestr8-api listening on %s (cors: %v)", addr, origins)
 	log.Fatal(srv.ListenAndServe())
 }

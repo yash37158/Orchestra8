@@ -2,9 +2,8 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -64,17 +63,7 @@ type FirstSignal struct {
 	TempC    float64 `json:"tempC"`
 }
 
-func newToken() string {
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
-		// A predictable token is worse than none: fail loudly rather than
-		// hand out something guessable.
-		return ""
-	}
-	return "orch8_" + hex.EncodeToString(b)
-}
-
-func handleConnect(w http.ResponseWriter, r *http.Request, apiBase string) {
+func handleConnect(w http.ResponseWriter, r *http.Request, ctrl *control, apiBase string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -95,17 +84,28 @@ func handleConnect(w http.ResponseWriter, r *http.Request, apiBase string) {
 	if req.Namespace == "" {
 		req.Namespace = "orchestr8"
 	}
-	token := newToken()
-	if token == "" {
-		http.Error(w, "could not generate a token", http.StatusInternalServerError)
+	// Registering the cluster and minting the token are one step: a token that
+	// is not bound to a cluster can authenticate nothing, and a cluster with no
+	// token can send nothing. The plaintext is returned here and never again —
+	// only its hash is stored.
+	org := orgFromRequest(r)
+	token, err := ctrl.registerCluster(r.Context(), org, req.ClusterID, req.ClusterID)
+	if err != nil {
+		log.Printf("onboarding: register %s/%s: %v", org, req.ClusterID, err)
+		http.Error(w, "could not register the cluster", http.StatusInternalServerError)
 		return
 	}
 
+	// orgId and clusterId are in the command because the gateway checks them
+	// against the token rather than inferring them. Getting either wrong is a
+	// 403 with a message that says so, which beats telemetry quietly landing
+	// in the wrong tenant.
 	cmd := fmt.Sprintf(`helm install orchestr8 ./deploy/helm/orchestr8-collector \
   --namespace %s --create-namespace \
   --set clusterId=%s \
+  --set orgId=%s \
   --set endpoint=%s \
-  --set token=%s`, req.Namespace, req.ClusterID, apiBase, token)
+  --set token=%s`, req.Namespace, req.ClusterID, org, apiBase, token)
 
 	writeJSON(w, ConnectResponse{
 		ClusterID: req.ClusterID, Namespace: req.Namespace,

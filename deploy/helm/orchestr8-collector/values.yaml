@@ -2,11 +2,13 @@
 # onboarding fails when a chart asks fifteen questions on the first screen.
 clusterId: ""
 
-# Organisation this cluster belongs to. Temporary: once the ingest gateway is
-# in front, the token determines this and the value here is ignored.
+# Organisation this cluster belongs to. Must match the organisation the ingest
+# token was issued for — the gateway rejects the batch otherwise. Onboarding
+# fills both in together, so they only diverge if someone edits one by hand.
 orgId: ""
 
-# Where telemetry is sent. The onboarding flow fills this in.
+# Where telemetry is sent: the Orchestr8 ingest gateway, never a collector
+# directly. The onboarding flow fills this in.
 endpoint: ""
 # Token for that endpoint, stored in a Secret rather than inlined into the
 # DaemonSet's environment where it would show up in `kubectl describe`.

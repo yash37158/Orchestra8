@@ -4,13 +4,21 @@
 # identical is deliberate, so what works locally works in-cluster.
 
 receivers:
-  # Bound to all interfaces so a local Kubernetes VM can reach it. This is a
-  # DEV-ONLY posture: it exposes the receiver to the local network, which is
-  # why the in-cluster gateway sits behind a ClusterIP Service instead.
+  # Remote clusters reach the ingest gateway (:4319), which checks their token
+  # before forwarding here. This port must therefore accept nothing else.
+  #
+  # Loopback alone does not achieve that. Under lima/colima the host agent
+  # proxies host.lima.internal FROM the host's own loopback, so a pod inside
+  # the VM reaches 127.0.0.1:4318 on the host as if it were local — measured,
+  # not assumed. The shared secret is what actually closes it: the gateway is
+  # the only thing that holds it.
   otlp:
     protocols:
-      grpc: { endpoint: 0.0.0.0:4317 }
-      http: { endpoint: 0.0.0.0:4318 }
+      grpc: { endpoint: 127.0.0.1:4317 }
+      http:
+        endpoint: 127.0.0.1:4318
+        auth:
+          authenticator: bearertokenauth/ingest
 
   # services/devkit stands in for DCGM exporter + vLLM on a GPU node. It speaks
   # the real exposition formats, so swapping in hardware is an address change.
@@ -41,10 +49,10 @@ processors:
       - key: orchestr8.cluster.id
         value: gcp-usc1
         action: insert
-      # TEMPORARY. Until the ingest gateway resolves the organisation from the
-      # ingest token, the collector asserts it — which means it is trusted
-      # input, and trusted input is exactly what this whole change removes.
-      # Delete this block once the gateway is in front.
+      # Locally-scraped telemetry only: this collector is scraping devkit on
+      # its own loopback, so it is the origin, not a relay. Anything arriving
+      # over OTLP already came through the gateway and had its org checked
+      # against a token, and `insert` leaves that alone.
       - key: orchestr8.org.id
         value: local
         action: insert
@@ -81,8 +89,19 @@ exporters:
 extensions:
   health_check: { endpoint: 127.0.0.1:13133 }
 
+  # The hop between the ingest gateway and this collector. Read from a file so
+  # the secret is never in the config, the process table or a shell history;
+  # `make up` generates it. Path is relative to the repo root, which is where
+  # the collector is started from.
+  #
+  # ponytail: one shared secret, rotated by rewriting the file and restarting
+  # both ends. mTLS when the two stop being neighbours on one host.
+  bearertokenauth/ingest:
+    scheme: Bearer
+    filename: .localdev/collector.secret
+
 service:
-  extensions: [health_check]
+  extensions: [health_check, bearertokenauth/ingest]
   pipelines:
     metrics:
       receivers: [otlp, prometheus/gpu]

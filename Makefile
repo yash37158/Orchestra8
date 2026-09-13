@@ -11,6 +11,7 @@
 
 CH_DATA := .localdev/clickhouse
 OTELCOL := .localdev/bin/otelcol-contrib
+SECRET  := .localdev/collector.secret
 LOGS    := .localdev/logs
 
 .PHONY: up down status logs store schema devkit collector api web \
@@ -24,6 +25,9 @@ LOGS    := .localdev/logs
 up:                          ## start the whole stack in the background
 	@mkdir -p $(LOGS) $(CH_DATA)
 	@echo "starting stack..."
+	@# The gateway->collector hop. Generated once, never committed: it is the
+	@# only reason the collector's OTLP port cannot be written to directly.
+	@[ -s $(SECRET) ] || (openssl rand -hex 32 > $(SECRET) && chmod 600 $(SECRET))
 	@lsof -ti:8123  >/dev/null 2>&1 || (cd $(CH_DATA) && nohup clickhouse server > ../../$(LOGS)/clickhouse.log 2>&1 </dev/null &)
 	@for i in $$(seq 1 60); do lsof -ti:8123 >/dev/null 2>&1 && break; sleep 0.5; done; \
 		lsof -ti:8123 >/dev/null 2>&1 || echo "  !! clickhouse failed - see $(LOGS)/clickhouse.log"
@@ -52,7 +56,7 @@ down:                        ## stop everything started by `make up`
 	done
 
 status:                      ## what is running
-	@for pair in "8123 clickhouse" "9400 devkit" "13133 collector" "8088 api" "3000 web"; do \
+	@for pair in "8123 clickhouse" "9400 devkit" "13133 collector" "8088 api" "4319 ingest" "3000 web"; do \
 		port=$${pair%% *}; name=$${pair#* }; \
 		if lsof -ti:$$port >/dev/null 2>&1; then echo "  UP    $$name  :$$port"; \
 		else echo "  down  $$name  :$$port"; fi; \
@@ -86,6 +90,7 @@ devkit:                      ## GPU fleet simulator on :9400
 	cd services/devkit && go run . -addr :9400 -interval 5s
 
 collector:                   ## scrape devkit -> clickhouse
+	@[ -s $(SECRET) ] || (openssl rand -hex 32 > $(SECRET) && chmod 600 $(SECRET))
 	$(OTELCOL) --config services/collector/otel-collector.local.yaml
 
 api:                         ## query API on :8088

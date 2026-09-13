@@ -12,13 +12,23 @@ receivers:
   # GenAI spans from instrumented apps. The OTel GenAI semantic conventions
   # (gen_ai.request.model, gen_ai.usage.*_tokens) land here — this is how token
   # spend and TTFT get attributed to a model without vendor lock-in.
+  #
+  # Authenticated, not merely firewalled. Every customer cluster reaches us
+  # through the ingest gateway, which checks their token and stamps nothing it
+  # did not verify; this receiver accepts only the gateway's own secret. A
+  # receiver that trusts its network is a receiver that trusts whoever ends up
+  # on that network.
   otlp:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
         max_recv_msg_size_mib: 16
+        auth:
+          authenticator: bearertokenauth/ingest
       http:
         endpoint: 0.0.0.0:4318
+        auth:
+          authenticator: bearertokenauth/ingest
 
   # GPU silicon. DCGM exporter runs as a DaemonSet on GPU nodes (port 9400).
   prometheus/gpu:
@@ -112,11 +122,18 @@ exporters:
     sending_queue: { enabled: true, num_consumers: 10, queue_size: 10000 }
 
 extensions:
+  # Shared with the ingest gateway only. Mounted from a Secret rather than
+  # set inline, so it is not in the ConfigMap, the process table, or the
+  # output of `kubectl describe`.
+  bearertokenauth/ingest:
+    scheme: Bearer
+    filename: /etc/orchestr8/ingest.secret
+
   health_check: { endpoint: 0.0.0.0:13133 }
   pprof: { endpoint: 0.0.0.0:1777 }
 
 service:
-  extensions: [health_check, pprof]
+  extensions: [health_check, pprof, bearertokenauth/ingest]
   pipelines:
     traces:
       receivers: [otlp]

@@ -75,7 +75,10 @@ data:
           - key: orchestr8.cluster.id
             value: {{ .Values.clusterId | quote }}
             action: upsert
-          # TEMPORARY, as above: the gateway will derive this from the token.
+          # Declared here and verified at the gateway against the ingest
+          # token. A wrong value is a 403 that says so, not telemetry landing
+          # quietly in another tenant — which is why it is safe to let the
+          # chart state it at all.
           - key: orchestr8.org.id
             value: {{ .Values.orgId | default "local" | quote }}
             action: upsert

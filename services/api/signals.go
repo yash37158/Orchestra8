@@ -134,7 +134,7 @@ SELECT
     Attributes['UUID']       AS uuid,
     Attributes['Hostname']   AS host
 FROM orchestr8.otel_metrics_gauge
-WHERE MetricName = 'orchestr8_model_gpu_binding'
+WHERE %s AND MetricName = 'orchestr8_model_gpu_binding'
   AND TimeUnix >= now() - INTERVAL 10 MINUTE
 GROUP BY clusterId, model, uuid, host`
 
@@ -160,7 +160,7 @@ SELECT
     round(avgIfMerge(MemoryUsedMib), 0)     AS memUsedMib,
     round(maxIfMerge(MemoryTotalMib), 0)    AS memTotMib
 FROM orchestr8.gpu_minute
-WHERE Minute >= now() - INTERVAL %d SECOND
+WHERE %s AND Minute >= now() - INTERVAL %d SECOND
 GROUP BY GpuUuid, ClusterId, NodeName`
 
 const qXid = `
@@ -169,7 +169,7 @@ SELECT
     Attributes['UUID'] AS uuid,
     max(Value)         AS xidErrors
 FROM orchestr8.otel_metrics_sum
-WHERE MetricName = 'DCGM_FI_DEV_XID_ERRORS' AND TimeUnix >= now() - INTERVAL %d SECOND
+WHERE %s AND MetricName = 'DCGM_FI_DEV_XID_ERRORS' AND TimeUnix >= now() - INTERVAL %d SECOND
 GROUP BY clusterId, uuid`
 
 type xidRow struct {
@@ -200,7 +200,7 @@ SELECT
     sumMerge(Requests)          AS requests,
     count() AS minutes
 FROM orchestr8.inference_minute
-WHERE Minute >= toStartOfMinute(now()) - INTERVAL %d SECOND
+WHERE %s AND Minute >= toStartOfMinute(now()) - INTERVAL %d SECOND
   AND Minute <  toStartOfMinute(now()) - INTERVAL %d SECOND
 GROUP BY ClusterId, Model`
 
@@ -228,7 +228,7 @@ SELECT
     round(avgIf(Value, MetricName = 'vllm:num_requests_waiting'), 1)     AS queueDepth,
     round(avgIf(Value, MetricName = 'vllm:gpu_cache_usage_perc')*100, 1) AS kvCachePct
 FROM orchestr8.otel_metrics_gauge
-WHERE TimeUnix >= now() - INTERVAL %d SECOND AND MetricName LIKE 'vllm:%%'
+WHERE %s AND TimeUnix >= now() - INTERVAL %d SECOND AND MetricName LIKE 'vllm:%%'
 GROUP BY model`
 
 type svcGaugeNowRow struct {
@@ -238,27 +238,27 @@ type svcGaugeNowRow struct {
 }
 
 // collectSignals assembles one bundle per inference service.
-func collectSignals(ctx context.Context, c *chClient, slos map[string]float64) ([]serviceSignal, error) {
+func collectSignals(ctx context.Context, c *chClient, org string, slos map[string]float64) ([]serviceSignal, error) {
 	var binds []bindingRow
-	if err := c.query(ctx, qBindings, &binds); err != nil {
+	if err := c.query(ctx, fmt.Sprintf(qBindings, orgClauseRaw(org)), &binds); err != nil {
 		return nil, fmt.Errorf("bindings: %w", err)
 	}
 	var gpus []gpuSignal
-	if err := c.query(ctx, fmt.Sprintf(qGPUState, int(nowWindow.Seconds())), &gpus); err != nil {
+	if err := c.query(ctx, fmt.Sprintf(qGPUState, orgClause(org), int(nowWindow.Seconds())), &gpus); err != nil {
 		return nil, fmt.Errorf("gpu state: %w", err)
 	}
 	var xids []xidRow
-	_ = c.query(ctx, fmt.Sprintf(qXid, int(nowWindow.Seconds())), &xids) // absent when no faults
+	_ = c.query(ctx, fmt.Sprintf(qXid, orgClauseRaw(org), int(nowWindow.Seconds())), &xids) // absent when no faults
 	var nowRows, baseRows []svcWindowRow
 	// Every window is shifted back by `settle` so it only covers minutes that
 	// have finished being written.
 	st := int(settle.Seconds())
-	if err := c.query(ctx, fmt.Sprintf(qSvcWindow, int(nowWindow.Seconds())+st, st), &nowRows); err != nil {
+	if err := c.query(ctx, fmt.Sprintf(qSvcWindow, orgClause(org), int(nowWindow.Seconds())+st, st), &nowRows); err != nil {
 		return nil, fmt.Errorf("service now: %w", err)
 	}
-	_ = c.query(ctx, fmt.Sprintf(qSvcWindow, int(baseFrom.Seconds())+st, int(baseTo.Seconds())+st), &baseRows)
+	_ = c.query(ctx, fmt.Sprintf(qSvcWindow, orgClause(org), int(baseFrom.Seconds())+st, int(baseTo.Seconds())+st), &baseRows)
 	var gaugeRows []svcGaugeNowRow
-	_ = c.query(ctx, fmt.Sprintf(qSvcGaugesNow, int(nowWindow.Seconds())), &gaugeRows)
+	_ = c.query(ctx, fmt.Sprintf(qSvcGaugesNow, orgClauseRaw(org), int(nowWindow.Seconds())), &gaugeRows)
 
 	// Peak clock per GPU model, used as the throttle reference. Without a
 	// per-model spec table, the best clock any card of that model is currently

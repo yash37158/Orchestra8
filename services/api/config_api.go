@@ -62,7 +62,7 @@ SELECT ResourceAttributes['orchestr8.cluster.id'] AS clusterId,
        uniq(Attributes['UUID']) AS gpus,
        toUnixTimestamp(max(TimeUnix)) AS lastSeen
 FROM orchestr8.otel_metrics_gauge
-WHERE MetricName = 'DCGM_FI_DEV_GPU_TEMP' AND TimeUnix >= now() - INTERVAL 1 DAY
+WHERE `+orgClauseRaw(orgFromRequest(r))+` AND MetricName = 'DCGM_FI_DEV_GPU_TEMP' AND TimeUnix >= now() - INTERVAL 1 DAY
 GROUP BY clusterId ORDER BY clusterId`, &rows)
 
 	clusters := make([]map[string]any, 0, len(rows))

@@ -21,6 +21,7 @@ import (
 // against what is already deployed without rebuilding or re-pulling anything.
 
 type scanner struct {
+	org    string
 	ch     *chClient
 	audit  *auditLog
 	bin    string // trivy
@@ -195,7 +196,7 @@ func firstLine(s string) string {
 func (s *scanner) persist(ctx context.Context, r *ScanResult, sbom string) error {
 	at := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	head, err := json.Marshal(map[string]any{
-		"Id": r.ID, "At": at, "Target": r.Target, "TargetKind": r.TargetKind,
+		"OrgId": s.org, "Id": r.ID, "At": at, "Target": r.Target, "TargetKind": r.TargetKind,
 		"Scanner": r.Scanner, "DurationMs": r.DurationMs,
 		"Critical": r.Critical, "High": r.High, "Medium": r.Medium, "Low": r.Low,
 		"Fixable": r.Fixable, "SbomJson": sbom, "Outcome": r.Outcome,
@@ -213,7 +214,7 @@ func (s *scanner) persist(ctx context.Context, r *ScanResult, sbom string) error
 	b.WriteString("INSERT INTO orchestr8.scan_findings FORMAT JSONEachRow\n")
 	for _, f := range r.Findings {
 		line, _ := json.Marshal(map[string]any{
-			"ScanId": r.ID, "At": at, "Target": r.Target, "VulnId": f.VulnID,
+			"OrgId": s.org, "ScanId": r.ID, "At": at, "Target": r.Target, "VulnId": f.VulnID,
 			"Severity": f.Severity, "Package": f.Package, "Installed": f.Installed,
 			"FixedVersion": f.FixedVersion, "Title": f.Title, "PrimaryUrl": f.PrimaryURL,
 			"Fixable": boolToUint8(f.Fixable),
@@ -245,7 +246,7 @@ type scanSummary struct {
 }
 
 // latestScanFor backs the deploy preflight gate.
-func latestScanFor(ctx context.Context, c *chClient, target string) (*scanSummary, error) {
+func latestScanFor(ctx context.Context, c *chClient, org, target string) (*scanSummary, error) {
 	var rows []struct {
 		Id       string `json:"Id"`
 		At       string `json:"At"`
@@ -257,7 +258,7 @@ func latestScanFor(ctx context.Context, c *chClient, target string) (*scanSummar
 		Outcome  string `json:"Outcome"`
 	}
 	q := fmt.Sprintf(`SELECT Id, toString(At) AS At, Target, Critical, High, Medium, Fixable, Outcome
-FROM orchestr8.scans WHERE Target = %s AND Outcome = 'ok' ORDER BY At DESC LIMIT 1`, chQuote(target))
+FROM orchestr8.scans WHERE %s AND Target = %s AND Outcome = 'ok' ORDER BY At DESC LIMIT 1`, orgClause(org), chQuote(target))
 	if err := c.query(ctx, q, &rows); err != nil {
 		return nil, err
 	}
@@ -269,7 +270,7 @@ FROM orchestr8.scans WHERE Target = %s AND Outcome = 'ok' ORDER BY At DESC LIMIT
 		Critical: r.Critical, High: r.High, Medium: r.Medium, Fixable: r.Fixable, Outcome: r.Outcome}, nil
 }
 
-func listScans(ctx context.Context, c *chClient, limit int) ([]scanSummary, error) {
+func listScans(ctx context.Context, c *chClient, org string, limit int) ([]scanSummary, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 25
 	}
@@ -284,7 +285,7 @@ func listScans(ctx context.Context, c *chClient, limit int) ([]scanSummary, erro
 		Outcome  string `json:"Outcome"`
 	}
 	q := fmt.Sprintf(`SELECT Id, toString(At) AS At, Target, Critical, High, Medium, Fixable, Outcome
-FROM orchestr8.scans ORDER BY At DESC LIMIT %d`, limit)
+FROM orchestr8.scans WHERE %s ORDER BY At DESC LIMIT %d`, orgClause(org), limit)
 	if err := c.query(ctx, q, &rows); err != nil {
 		return nil, err
 	}
@@ -296,7 +297,7 @@ FROM orchestr8.scans ORDER BY At DESC LIMIT %d`, limit)
 	return out, nil
 }
 
-func scanFindings(ctx context.Context, c *chClient, scanID string) ([]Finding, error) {
+func scanFindings(ctx context.Context, c *chClient, org, scanID string) ([]Finding, error) {
 	var rows []struct {
 		VulnId       string `json:"VulnId"`
 		Severity     string `json:"Severity"`
@@ -308,8 +309,8 @@ func scanFindings(ctx context.Context, c *chClient, scanID string) ([]Finding, e
 		Fixable      uint8  `json:"Fixable"`
 	}
 	q := fmt.Sprintf(`SELECT VulnId, Severity, Package, Installed, FixedVersion, Title, PrimaryUrl, Fixable
-FROM orchestr8.scan_findings WHERE ScanId = %s
-ORDER BY multiIf(Severity='CRITICAL',0,Severity='HIGH',1,Severity='MEDIUM',2,3), Fixable DESC, VulnId`, chQuote(scanID))
+FROM orchestr8.scan_findings WHERE %s AND ScanId = %s
+ORDER BY multiIf(Severity='CRITICAL',0,Severity='HIGH',1,Severity='MEDIUM',2,3), Fixable DESC, VulnId`, orgClause(org), chQuote(scanID))
 	if err := c.query(ctx, q, &rows); err != nil {
 		return nil, err
 	}

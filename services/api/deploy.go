@@ -62,6 +62,7 @@ type Deployment struct {
 }
 
 type deployer struct {
+	org   string
 	repo  string
 	ch    *chClient
 	slos  *sloStore
@@ -159,7 +160,7 @@ func (d *deployer) Preflight(ctx context.Context, req DeployRequest) (*Preflight
 // actually free right now, using live DCGM telemetry.
 func (d *deployer) capacityCheck(ctx context.Context, req DeployRequest) (*PreflightCheck, error) {
 	var gpus []gpuSignal
-	if err := d.ch.query(ctx, fmt.Sprintf(qGPUState, 300), &gpus); err != nil {
+	if err := d.ch.query(ctx, fmt.Sprintf(qGPUState, orgClause(d.org), 300), &gpus); err != nil {
 		return nil, err
 	}
 	var inCluster []gpuSignal
@@ -211,7 +212,7 @@ func (d *deployer) capacityCheck(ctx context.Context, req DeployRequest) (*Prefl
 
 // sloCheck refuses to silently deploy on top of a live incident.
 func (d *deployer) sloCheck(ctx context.Context, req DeployRequest) (*PreflightCheck, error) {
-	corrs, err := d.ch.correlations(ctx, "")
+	corrs, err := d.ch.correlations(ctx, d.org, "")
 	if err != nil {
 		return nil, fmt.Errorf("correlation engine unreachable")
 	}
@@ -235,7 +236,7 @@ func (d *deployer) sloCheck(ctx context.Context, req DeployRequest) (*PreflightC
 }
 
 func (d *deployer) imageScanCheck(ctx context.Context, req DeployRequest) PreflightCheck {
-	res, err := latestScanFor(ctx, d.ch, req.Image)
+	res, err := latestScanFor(ctx, d.ch, d.org, req.Image)
 	if err != nil || res == nil {
 		return PreflightCheck{ID: "scan", Name: "Image scan", Status: "skipped",
 			Detail: fmt.Sprintf("No scan on record for %s. Run a scan to gate this deploy on it.", req.Image)}

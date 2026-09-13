@@ -22,8 +22,8 @@ func main() {
 	slos := newSLOStore(env("ORCHESTR8_SLO_FILE", "../../config/slos.json"))
 
 	// The detection loop lives with the query API: same store, same schedule.
-	ntf := newNotifier(env("ORCHESTR8_NOTIFY_FILE", "../../config/notifications.json"), &auditLog{ch: ch})
-	eng := &engine{ch: ch, slos: slos, notify: ntf,
+	ntf := newNotifier(env("ORCHESTR8_NOTIFY_FILE", "../../config/notifications.json"), &auditLog{org: defaultOrg(), ch: ch})
+	eng := &engine{org: defaultOrg(), ch: ch, slos: slos, notify: ntf,
 		interval: envDuration("ORCHESTR8_DETECT_INTERVAL", 30*time.Second)}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -36,12 +36,15 @@ func main() {
 	})
 	// What the rules actually see. Correlation bugs are almost always signal
 	// bugs, and reading the inputs beats guessing from the verdict.
-	aud := &auditLog{ch: ch}
+	org := defaultOrg()
+	aud := &auditLog{org: org, ch: ch}
 	dep := &deployer{
+		org:   org,
 		repo:  env("ORCHESTR8_GITOPS_REPO", "../../.localdev/gitops"),
 		ch:    ch, slos: slos, audit: aud,
 	}
 	scn := &scanner{
+		org: org,
 		ch: ch, audit: aud,
 		bin:    env("ORCHESTR8_TRIVY_BIN", "trivy"),
 		docker: env("ORCHESTR8_DOCKER_CONFIG", "../../.localdev/dockerconfig"),
@@ -72,7 +75,7 @@ func main() {
 	mux.HandleFunc("/v1/audit/verify", func(w http.ResponseWriter, r *http.Request) { handleAudit(w, r, aud) })
 
 	mux.HandleFunc("/v1/debug/signals", func(w http.ResponseWriter, r *http.Request) {
-		sig, err := collectSignals(r.Context(), ch, slos.All())
+		sig, err := collectSignals(r.Context(), ch, orgFromRequest(r), slos.All())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -138,7 +141,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, ch *chClient, slos 
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	data, err := loadDashboardFromCH(r.Context(), ch, slos.All(), rates, aud)
+	data, err := loadDashboardFromCH(r.Context(), ch, orgFromRequest(r), slos.All(), rates, aud)
 	if err != nil {
 		log.Printf("dashboard: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -156,7 +159,7 @@ func handleCorrelations(w http.ResponseWriter, r *http.Request, ch *chClient) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	cs, err := ch.correlations(r.Context(), "")
+	cs, err := ch.correlations(r.Context(), orgFromRequest(r), "")
 	if err != nil {
 		log.Printf("correlations: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -193,7 +196,7 @@ func handleCorrelation(w http.ResponseWriter, r *http.Request, ch *chClient) {
 			http.Error(w, "status must be open, acknowledged or suppressed", http.StatusBadRequest)
 			return
 		}
-		if err := ch.setStatus(r.Context(), id, body.Status); err != nil {
+		if err := ch.setStatus(r.Context(), orgFromRequest(r), id, body.Status); err != nil {
 			log.Printf("set status %s=%s: %v", id, body.Status, err)
 			http.Error(w, "could not update status", http.StatusInternalServerError)
 			return
@@ -207,7 +210,7 @@ func handleCorrelation(w http.ResponseWriter, r *http.Request, ch *chClient) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	cs, err := ch.correlations(r.Context(), id)
+	cs, err := ch.correlations(r.Context(), orgFromRequest(r), id)
 	if err != nil {
 		log.Printf("correlation %s: %v", id, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

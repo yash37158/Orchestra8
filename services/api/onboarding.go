@@ -121,9 +121,9 @@ func handleOnboardingStatus(w http.ResponseWriter, r *http.Request, c *chClient)
 	cluster := r.URL.Query().Get("clusterId")
 	st := OnboardingStatus{ClusterID: cluster, CheckedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 
-	filter := ""
+	filter := " AND " + orgClauseRaw(orgFromRequest(r))
 	if cluster != "" {
-		filter = fmt.Sprintf(" AND ResourceAttributes['orchestr8.cluster.id'] = %s", chQuote(cluster))
+		filter += fmt.Sprintf(" AND ResourceAttributes['orchestr8.cluster.id'] = %s", chQuote(cluster))
 	}
 
 	// 1. Is anything at all arriving? Distinguishes "chart not installed" from

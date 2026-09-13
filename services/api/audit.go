@@ -24,6 +24,7 @@ import (
 // than silently accepting it, which is the right failure mode.
 
 type auditLog struct {
+	org string
 	ch *chClient
 	mu sync.Mutex
 }
@@ -42,6 +43,7 @@ type AuditEntry struct {
 }
 
 type auditRow struct {
+	OrgId     string `json:"OrgId"`
 	Seq       uint64 `json:"Seq"`
 	At        string `json:"At"`
 	Actor     string `json:"Actor"`
@@ -73,7 +75,7 @@ func (a *auditLog) Append(ctx context.Context, actor, action, subject, cluster, 
 		Hash string `json:"hash"`
 	}
 	if err := a.ch.query(ctx,
-		`SELECT Seq AS seq, Hash AS hash FROM orchestr8.audit_log ORDER BY Seq DESC LIMIT 1`, &head); err != nil {
+		`SELECT Seq AS seq, Hash AS hash FROM orchestr8.audit_log WHERE `+orgClause(a.org)+` ORDER BY Seq DESC LIMIT 1`, &head); err != nil {
 		return nil, fmt.Errorf("audit head: %w", err)
 	}
 	var prevSeq uint64
@@ -97,9 +99,11 @@ func (a *auditLog) Append(ctx context.Context, actor, action, subject, cluster, 
 		Actor: actor, Action: action, Subject: subject, ClusterID: cluster,
 		Outcome: outcome, Detail: detail, PrevHash: prevHash,
 	}
-	e.Hash = hashEntry(prevHash, e.Seq, atCH, actor, action, subject, cluster, outcome, string(detailJSON))
+	// OrgId is inside the hash so an entry cannot be moved between tenants.
+	e.Hash = hashEntry(prevHash, e.Seq, atCH, a.org+"|"+actor, action, subject, cluster, outcome, string(detailJSON))
 
 	row := auditRow{
+		OrgId: a.org,
 		Seq: e.Seq, At: atCH, Actor: actor, Action: action, Subject: subject,
 		ClusterId: cluster, Outcome: outcome, Detail: string(detailJSON),
 		PrevHash: prevHash, Hash: e.Hash,
@@ -114,14 +118,14 @@ func (a *auditLog) Append(ctx context.Context, actor, action, subject, cluster, 
 	return &e, nil
 }
 
-func (a *auditLog) List(ctx context.Context, limit int) ([]AuditEntry, error) {
+func (a *auditLog) List(ctx context.Context, org string, limit int) ([]AuditEntry, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
 	var rows []auditRow
 	q := fmt.Sprintf(`SELECT Seq, toString(At) AS At, Actor, Action, Subject, ClusterId,
 	       Outcome, Detail, PrevHash, Hash
-	FROM orchestr8.audit_log ORDER BY Seq DESC LIMIT %d`, limit)
+	FROM orchestr8.audit_log WHERE %s ORDER BY Seq DESC LIMIT %d`, orgClause(org), limit)
 	if err := a.ch.query(ctx, q, &rows); err != nil {
 		return nil, err
 	}
@@ -153,7 +157,7 @@ func (a *auditLog) Verify(ctx context.Context) (*AuditVerification, error) {
 	var rows []auditRow
 	q := `SELECT Seq, toString(At) AS At, Actor, Action, Subject, ClusterId,
 	       Outcome, Detail, PrevHash, Hash
-	FROM orchestr8.audit_log ORDER BY Seq ASC`
+	FROM orchestr8.audit_log WHERE `+orgClause(a.org)+` ORDER BY Seq ASC`
 	if err := a.ch.query(ctx, q, &rows); err != nil {
 		return nil, err
 	}
@@ -170,7 +174,7 @@ func (a *auditLog) Verify(ctx context.Context) (*AuditVerification, error) {
 			v.Intact, v.BrokenAt, v.Reason = false, r.Seq, "previous-hash mismatch — the chain was re-linked"
 			return v, nil
 		}
-		want := hashEntry(prev, r.Seq, r.At, r.Actor, r.Action, r.Subject, r.ClusterId, r.Outcome, r.Detail)
+		want := hashEntry(prev, r.Seq, r.At, r.OrgId+"|"+r.Actor, r.Action, r.Subject, r.ClusterId, r.Outcome, r.Detail)
 		if !strings.EqualFold(want, r.Hash) {
 			v.Intact, v.BrokenAt, v.Reason = false, r.Seq, "content hash mismatch — this entry was modified after it was written"
 			return v, nil

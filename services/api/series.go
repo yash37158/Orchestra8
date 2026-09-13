@@ -29,7 +29,7 @@ const qSeriesGauge = `
 SELECT toUnixTimestamp(toStartOfInterval(TimeUnix, INTERVAL %d SECOND)) AS t,
        round(avg(Value), 2) AS v
 FROM orchestr8.otel_metrics_gauge
-WHERE MetricName = %s
+WHERE %s AND MetricName = %s
   AND TimeUnix >= toDateTime(%d) AND TimeUnix <= toDateTime(%d)
   %s
 GROUP BY t ORDER BY t`
@@ -38,7 +38,7 @@ const qSeriesHistP95 = `
 SELECT toUnixTimestamp(toStartOfInterval(TimeUnix, INTERVAL %d SECOND)) AS t,
        any(ExplicitBounds) AS bounds, sumForEach(BucketCounts) AS buckets
 FROM orchestr8.otel_metrics_histogram
-WHERE MetricName = 'vllm:time_to_first_token_seconds'
+WHERE %s AND MetricName = 'vllm:time_to_first_token_seconds'
   AND TimeUnix >= toDateTime(%d) AND TimeUnix <= toDateTime(%d)
   AND Attributes['model_name'] = %s
 GROUP BY t ORDER BY t`
@@ -71,7 +71,7 @@ func handleSeries(w http.ResponseWriter, r *http.Request, c *chClient) {
 		bucket = 5
 	}
 
-	pts, err := querySeries(r.Context(), c, metric, subject, fromT, toT, bucket)
+	pts, err := querySeries(r.Context(), c, orgFromRequest(r), metric, subject, fromT, toT, bucket)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -83,7 +83,7 @@ func handleSeries(w http.ResponseWriter, r *http.Request, c *chClient) {
 	})
 }
 
-func querySeries(ctx context.Context, c *chClient, metric, subject string, from, to time.Time, bucket int) ([]seriesPoint, error) {
+func querySeries(ctx context.Context, c *chClient, org, metric, subject string, from, to time.Time, bucket int) ([]seriesPoint, error) {
 	f, t := from.Unix(), to.Unix()
 
 	// TTFT is a histogram, so a p95 per bucket has to be interpolated rather
@@ -94,7 +94,7 @@ func querySeries(ctx context.Context, c *chClient, metric, subject string, from,
 			Bounds  []float64 `json:"bounds"`
 			Buckets []uint64  `json:"buckets"`
 		}
-		if err := c.query(ctx, fmt.Sprintf(qSeriesHistP95, bucket, f, t, chQuote(subject)), &rows); err != nil {
+		if err := c.query(ctx, fmt.Sprintf(qSeriesHistP95, bucket, orgClauseRaw(org), f, t, chQuote(subject)), &rows); err != nil {
 			return nil, err
 		}
 		out := make([]seriesPoint, 0, len(rows))
@@ -120,7 +120,7 @@ func querySeries(ctx context.Context, c *chClient, metric, subject string, from,
 		T int64   `json:"t"`
 		V float64 `json:"v"`
 	}
-	if err := c.query(ctx, fmt.Sprintf(qSeriesGauge, bucket, chQuote(metric), f, t, filter), &raw); err != nil {
+	if err := c.query(ctx, fmt.Sprintf(qSeriesGauge, bucket, orgClauseRaw(org), chQuote(metric), f, t, filter), &raw); err != nil {
 		return nil, err
 	}
 	pts := make([]seriesPoint, 0, len(raw))

@@ -123,7 +123,7 @@ SELECT
     round(minIfMerge(SmClockMhz), 0)        AS smClockMhz,
     toUnixTimestamp(max(Minute))            AS lastSeen
 FROM orchestr8.gpu_minute
-WHERE Minute >= toStartOfMinute(now()) - INTERVAL 10 MINUTE
+WHERE %s AND Minute >= toStartOfMinute(now()) - INTERVAL 10 MINUTE
 GROUP BY ClusterId, NodeName, GpuUuid
 ORDER BY ClusterId, NodeName, uuid`
 
@@ -192,12 +192,13 @@ type clusterDetail struct {
 }
 
 func handleClusters(w http.ResponseWriter, r *http.Request, c *chClient, rates *rateCard) {
+	org := orgFromRequest(r)
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var rows []fleetRow
-	if err := c.query(r.Context(), qFleet, &rows); err != nil {
+	if err := c.query(r.Context(), fmt.Sprintf(qFleet, orgClause(org)), &rows); err != nil {
 		log.Printf("clusters: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

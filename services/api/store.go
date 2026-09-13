@@ -66,7 +66,7 @@ func (c *chClient) query(ctx context.Context, sql string, out any) error {
 // FUTURE, so the stale banner can never fire. An integer has no timezone.
 const qFreshness = `
 SELECT toUnixTimestamp(max(TimeUnix)) AS t FROM orchestr8.otel_metrics_gauge
-WHERE TimeUnix >= now() - INTERVAL 1 DAY`
+WHERE %s AND TimeUnix >= now() - INTERVAL 1 DAY`
 
 const qGPUs = `
 SELECT
@@ -81,7 +81,7 @@ SELECT
     round(avgIfMerge(PowerWatts), 1)       AS powerWatts,
     round(minIfMerge(SmClockMhz), 0)       AS smClockMhz
 FROM orchestr8.gpu_minute
-WHERE Minute >= now() - INTERVAL 5 MINUTE
+WHERE %s AND Minute >= now() - INTERVAL 5 MINUTE
 GROUP BY ClusterId, NodeName, GpuUuid
 ORDER BY nodeName, uuid`
 
@@ -110,7 +110,7 @@ SELECT
     sumMerge(Requests)          AS requests,
     sumMerge(TtftSumSec)        AS ttftSumSec
 FROM orchestr8.inference_minute
-WHERE Minute >= now() - INTERVAL 5 MINUTE
+WHERE %s AND Minute >= now() - INTERVAL 5 MINUTE
 GROUP BY ClusterId, Model
 ORDER BY model`
 
@@ -132,7 +132,7 @@ SELECT
     round(avgIf(Value, MetricName = 'vllm:gpu_cache_usage_perc')*100, 2) AS kvCacheUsagePct,
     round(avgIf(Value, MetricName = 'vllm:avg_generation_throughput_toks_per_s'), 1) AS tokensPerSecond
 FROM orchestr8.otel_metrics_gauge
-WHERE TimeUnix >= now() - INTERVAL 2 MINUTE AND MetricName LIKE 'vllm:%'
+WHERE %s AND TimeUnix >= now() - INTERVAL 2 MINUTE AND MetricName LIKE 'vllm:%%'
 GROUP BY model`
 
 type svcGaugeRow struct {
@@ -200,17 +200,17 @@ func histQuantile(bounds []float64, buckets []uint64, q float64) float64 {
 // needs GenAI spans the simulator does not emit. A zero the user can see is
 // honest; an invented number is the failure mode this whole refactor exists
 // to remove.
-func loadDashboardFromCH(ctx context.Context, c *chClient, slos map[string]float64, rates *rateCard, aud *auditLog) (*DashboardResponse, error) {
+func loadDashboardFromCH(ctx context.Context, c *chClient, org string, slos map[string]float64, rates *rateCard, aud *auditLog) (*DashboardResponse, error) {
 	var gRows []gpuRow
-	if err := c.query(ctx, qGPUs, &gRows); err != nil {
+	if err := c.query(ctx, fmt.Sprintf(qGPUs, orgClause(org)), &gRows); err != nil {
 		return nil, fmt.Errorf("gpu query: %w", err)
 	}
 	var sRows []svcRow
-	if err := c.query(ctx, qServices, &sRows); err != nil {
+	if err := c.query(ctx, fmt.Sprintf(qServices, orgClause(org)), &sRows); err != nil {
 		return nil, fmt.Errorf("service query: %w", err)
 	}
 	var sgRows []svcGaugeRow
-	if err := c.query(ctx, qServiceGauges, &sgRows); err != nil {
+	if err := c.query(ctx, fmt.Sprintf(qServiceGauges, orgClauseRaw(org)), &sgRows); err != nil {
 		return nil, fmt.Errorf("service gauge query: %w", err)
 	}
 	gauges := map[string]svcGaugeRow{}
@@ -220,13 +220,13 @@ func loadDashboardFromCH(ctx context.Context, c *chClient, slos map[string]float
 
 	// Real correlations from the engine. Empty means "nothing detected",
 	// which the UI renders differently from "engine unreachable".
-	corrs, cerr := c.correlations(ctx, "")
+	corrs, cerr := c.correlations(ctx, org, "")
 	if cerr != nil {
 		return nil, fmt.Errorf("correlations: %w", cerr)
 	}
 
 	out := &DashboardResponse{
-		Activity:     recentActivity(ctx, aud),
+		Activity:     recentActivity(ctx, aud, org),
 		Correlations: corrs,
 		Gpus:         []GpuDevice{},
 		Services:     []InferenceService{},
@@ -302,7 +302,7 @@ func loadDashboardFromCH(ctx context.Context, c *chClient, slos map[string]float
 	var fresh []struct {
 		T int64 `json:"t"`
 	}
-	if err := c.query(ctx, qFreshness, &fresh); err == nil && len(fresh) > 0 && fresh[0].T > 0 {
+	if err := c.query(ctx, fmt.Sprintf(qFreshness, orgClauseRaw(org)), &fresh); err == nil && len(fresh) > 0 && fresh[0].T > 0 {
 		s := time.Unix(fresh[0].T, 0).UTC().Format(time.RFC3339Nano)
 		lastTelemetry = &s
 	}
@@ -402,12 +402,12 @@ func auditKind(action string) string {
 // records every write path — deploys, scans, overrides, pages — so it is the
 // honest source: anything that appears here actually happened and is
 // independently verifiable in /audit.
-func recentActivity(ctx context.Context, aud *auditLog) []ActivityEvent {
+func recentActivity(ctx context.Context, aud *auditLog, org string) []ActivityEvent {
 	out := []ActivityEvent{}
 	if aud == nil {
 		return out
 	}
-	entries, err := aud.List(ctx, 12)
+	entries, err := aud.List(ctx, org, 12)
 	if err != nil {
 		return out
 	}

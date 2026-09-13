@@ -116,7 +116,7 @@ func handleScans(w http.ResponseWriter, r *http.Request, s *scanner) {
 	switch r.Method {
 	case http.MethodGet:
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		list, err := listScans(r.Context(), s.ch, limit)
+		list, err := listScans(r.Context(), s.ch, orgFromRequest(r), limit)
 		if err != nil {
 			http.Error(w, "could not list scans", http.StatusInternalServerError)
 			return
@@ -163,7 +163,7 @@ func handleScan(w http.ResponseWriter, r *http.Request, s *scanner, d *deployer)
 			var rows []struct {
 				SbomJson string `json:"SbomJson"`
 			}
-			q := fmt.Sprintf("SELECT SbomJson FROM orchestr8.scans WHERE Id = %s LIMIT 1", chQuote(id))
+			q := fmt.Sprintf("SELECT SbomJson FROM orchestr8.scans WHERE %s AND Id = %s LIMIT 1", orgClause(orgFromRequest(r)), chQuote(id))
 			if err := s.ch.query(r.Context(), q, &rows); err != nil || len(rows) == 0 || rows[0].SbomJson == "" {
 				http.Error(w, "no SBOM stored for this scan", http.StatusNotFound)
 				return
@@ -175,7 +175,7 @@ func handleScan(w http.ResponseWriter, r *http.Request, s *scanner, d *deployer)
 				map[string]any{"format": "cyclonedx"})
 			return
 		}
-		fs, err := scanFindings(r.Context(), s.ch, id)
+		fs, err := scanFindings(r.Context(), s.ch, orgFromRequest(r), id)
 		if err != nil {
 			http.Error(w, "could not read findings", http.StatusInternalServerError)
 			return
@@ -204,7 +204,7 @@ func handleScan(w http.ResponseWriter, r *http.Request, s *scanner, d *deployer)
 			ClusterID string `json:"clusterId"`
 		}
 		_ = decodeJSON(r, &req)
-		fs, err := scanFindings(r.Context(), s.ch, id)
+		fs, err := scanFindings(r.Context(), s.ch, orgFromRequest(r), id)
 		if err != nil {
 			http.Error(w, "could not read findings", http.StatusInternalServerError)
 			return
@@ -264,7 +264,7 @@ func handleScan(w http.ResponseWriter, r *http.Request, s *scanner, d *deployer)
 		return
 	}
 
-	fs, err := scanFindings(r.Context(), s.ch, id)
+	fs, err := scanFindings(r.Context(), s.ch, orgFromRequest(r), id)
 	if err != nil {
 		http.Error(w, "could not read findings", http.StatusInternalServerError)
 		return
@@ -345,7 +345,7 @@ func handleAudit(w http.ResponseWriter, r *http.Request, a *auditLog) {
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	entries, err := a.List(r.Context(), limit)
+	entries, err := a.List(r.Context(), orgFromRequest(r), limit)
 	if err != nil {
 		http.Error(w, "could not read the audit log", http.StatusInternalServerError)
 		return

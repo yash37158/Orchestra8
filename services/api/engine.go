@@ -22,6 +22,7 @@ import (
 // needs to scale horizontally.
 
 type engine struct {
+	org      string
 	ch       *chClient
 	slos     *sloStore
 	notify   *notifier
@@ -51,7 +52,7 @@ func (e *engine) run(ctx context.Context) {
 }
 
 func (e *engine) tick(ctx context.Context) {
-	signals, err := collectSignals(ctx, e.ch, e.slos.All())
+	signals, err := collectSignals(ctx, e.ch, e.org, e.slos.All())
 	if err != nil {
 		log.Printf("engine: collect: %v", err)
 		return
@@ -59,7 +60,7 @@ func (e *engine) tick(ctx context.Context) {
 	// A user's decision outranks the engine's. If someone acknowledged or
 	// suppressed a condition that is still happening, re-detecting it must not
 	// quietly flip it back to open and re-page them.
-	existing, err := e.ch.correlationStatuses(ctx)
+	existing, err := e.ch.correlationStatuses(ctx, e.org)
 	if err != nil {
 		log.Printf("engine: read statuses: %v", err)
 		existing = map[string]correlationState{}
@@ -130,7 +131,7 @@ func (e *engine) tick(ctx context.Context) {
 		if e.misses[id] < missesBeforeResolve {
 			continue
 		}
-		if err := e.ch.setStatus(ctx, id, "resolved"); err != nil {
+		if err := e.ch.setStatus(ctx, e.org, id, "resolved"); err != nil {
 			log.Printf("engine: resolve %s: %v", id, err)
 			continue
 		}
@@ -141,7 +142,7 @@ func (e *engine) tick(ctx context.Context) {
 	if len(found) == 0 {
 		return
 	}
-	if err := e.ch.insertCorrelations(ctx, found, notifyState); err != nil {
+	if err := e.ch.insertCorrelations(ctx, e.org, found, notifyState); err != nil {
 		log.Printf("engine: insert: %v", err)
 		return
 	}
@@ -171,6 +172,7 @@ type correlationRow struct {
 	CauseNodeName     string  `json:"CauseNodeName"`
 	ClusterId         string  `json:"ClusterId"`
 	EvidenceJson      string  `json:"EvidenceJson"`
+	OrgId             string  `json:"OrgId"`
 	Confidence        float64 `json:"Confidence"`
 	RecommendedAction string  `json:"RecommendedAction"`
 	NotifiedAt        string  `json:"NotifiedAt"`
@@ -207,7 +209,7 @@ func chTime(rfc string) string {
 	return t.UTC().Format("2006-01-02 15:04:05.000")
 }
 
-func (c *chClient) insertCorrelations(ctx context.Context, cs []Correlation, state map[string]correlationState) error {
+func (c *chClient) insertCorrelations(ctx context.Context, org string, cs []Correlation, state map[string]correlationState) error {
 	var body bytes.Buffer
 	body.WriteString("INSERT INTO orchestr8.correlations FORMAT JSONEachRow\n")
 	for _, x := range cs {
@@ -216,6 +218,7 @@ func (c *chClient) insertCorrelations(ctx context.Context, cs []Correlation, sta
 			return err
 		}
 		row := correlationRow{
+			OrgId: org,
 			Id: x.ID, DetectedAt: chTime(x.DetectedAt), UpdatedAt: chTime(x.UpdatedAt),
 			Status: x.Status, Severity: x.Severity, Summary: x.Summary,
 			WindowStart: chTime(x.WindowStart), WindowEnd: chTime(x.WindowEnd),
@@ -281,10 +284,10 @@ SELECT Id, toString(DetectedAt) AS DetectedAt, toString(UpdatedAt) AS UpdatedAt,
        CauseKind, CauseGpuUuid, CauseNodeName, ClusterId, EvidenceJson,
        Confidence, RecommendedAction
 FROM orchestr8.correlations FINAL
-WHERE (Status NOT IN ('suppressed', 'resolved') %s)
+WHERE OrgId = '%s' AND (Status NOT IN ('suppressed', 'resolved') %s)
 ORDER BY multiIf(Severity = 'critical', 0, Severity = 'warning', 1, 2), UpdatedAt DESC`
 
-func (c *chClient) correlationStatuses(ctx context.Context) (map[string]correlationState, error) {
+func (c *chClient) correlationStatuses(ctx context.Context, org string) (map[string]correlationState, error) {
 	var rows []struct {
 		Id               string `json:"Id"`
 		Status           string `json:"Status"`
@@ -294,7 +297,7 @@ func (c *chClient) correlationStatuses(ctx context.Context) (map[string]correlat
 		NotifiedAt       string `json:"NotifiedAt"`
 	}
 	if err := c.query(ctx,
-		"SELECT Id, Status, ClusterId, Model, NotifiedSeverity, toString(NotifiedAt) AS NotifiedAt FROM orchestr8.correlations FINAL",
+		"SELECT Id, Status, ClusterId, Model, NotifiedSeverity, toString(NotifiedAt) AS NotifiedAt FROM orchestr8.correlations FINAL WHERE "+orgClause(org),
 		&rows); err != nil {
 		return nil, err
 	}
@@ -310,7 +313,7 @@ func (c *chClient) correlationStatuses(ctx context.Context) (map[string]correlat
 	return out, nil
 }
 
-func (c *chClient) correlations(ctx context.Context, id string) ([]Correlation, error) {
+func (c *chClient) correlations(ctx context.Context, org, id string) ([]Correlation, error) {
 	// Listing hides resolved and suppressed noise. Fetching ONE by id must not:
 	// a link from a page received at 3am has to open even after the condition
 	// recovered, or the evidence disappears exactly when someone goes to read it.
@@ -319,7 +322,7 @@ func (c *chClient) correlations(ctx context.Context, id string) ([]Correlation, 
 		filter = fmt.Sprintf("OR Id = %s", chQuote(id))
 	}
 	var rows []correlationRow
-	q := fmt.Sprintf(qCorrelations, filter)
+	q := fmt.Sprintf(qCorrelations, org, filter)
 	if id != "" {
 		// Restrict to the requested id; the OR above only widens status.
 		q = fmt.Sprintf("SELECT * FROM (%s) WHERE Id = %s", q, chQuote(id))
@@ -365,8 +368,8 @@ func (c *chClient) correlations(ctx context.Context, id string) ([]Correlation, 
 // setStatus records a human decision. Writes a new row rather than mutating:
 // ReplacingMergeTree collapses on UpdatedAt, and an append-only history is what
 // the audit ledger will later read.
-func (c *chClient) setStatus(ctx context.Context, id, status string) error {
-	existing, err := c.correlationsRaw(ctx, id)
+func (c *chClient) setStatus(ctx context.Context, org, id, status string) error {
+	existing, err := c.correlationsRaw(ctx, org, id)
 	if err != nil {
 		return err
 	}
@@ -391,14 +394,14 @@ func (c *chClient) setStatus(ctx context.Context, id, status string) error {
 	return c.exec(ctx, "INSERT INTO orchestr8.correlations FORMAT JSONEachRow\n"+string(line)+"\n")
 }
 
-func (c *chClient) correlationsRaw(ctx context.Context, id string) ([]correlationRow, error) {
+func (c *chClient) correlationsRaw(ctx context.Context, org, id string) ([]correlationRow, error) {
 	var rows []correlationRow
 	q := fmt.Sprintf(`SELECT Id, toString(DetectedAt) AS DetectedAt, toString(UpdatedAt) AS UpdatedAt,
        Status, Severity, Summary, toString(WindowStart) AS WindowStart, toString(WindowEnd) AS WindowEnd,
        ServiceId, Model, SymptomMetric, SymptomObserved, SymptomThreshold,
        CauseKind, CauseGpuUuid, CauseNodeName, ClusterId, EvidenceJson, Confidence, RecommendedAction,
-       toString(NotifiedAt) AS NotifiedAt, NotifiedSeverity
-FROM orchestr8.correlations FINAL WHERE Id = %s LIMIT 1`, chQuote(id))
+       toString(NotifiedAt) AS NotifiedAt, NotifiedSeverity, OrgId
+FROM orchestr8.correlations FINAL WHERE %s AND Id = %s LIMIT 1`, orgClause(org), chQuote(id))
 	return rows, c.query(ctx, q, &rows)
 }
 

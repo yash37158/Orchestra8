@@ -47,7 +47,7 @@ func handleInference(w http.ResponseWriter, r *http.Request, c *chClient, slos *
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	signals, err := collectSignals(r.Context(), c, slos.All())
+	signals, err := collectSignals(r.Context(), c, orgFromRequest(r), slos.All())
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

@@ -1,4 +1,17 @@
-const API_URL = process.env.NEXT_PUBLIC_ORCHESTR8_API_URL ?? "http://localhost:8088"
+"use server"
+
+import { apiFetch, describeStatus } from "@/lib/api/fetch"
+
+/**
+ * Onboarding, as server actions rather than browser fetches.
+ *
+ * These used to run in the browser against NEXT_PUBLIC_ORCHESTR8_API_URL,
+ * which put the API's address in the page and made the call cross-origin — so
+ * the session cookie would only arrive if the app and the API happened to
+ * share a site, and silently not otherwise. Running them on the server means
+ * the cookie is forwarded the same way every other read forwards it, and the
+ * API's address stays server-side. The rest of the app already worked this way.
+ */
 
 export type ConnectResponse = {
   clusterId: string
@@ -34,20 +47,18 @@ export type OnboardingStatus = {
 }
 
 export async function connectCluster(clusterId: string, namespace: string): Promise<ConnectResponse> {
-  const res = await fetch(`${API_URL}/v1/onboarding/connect`, {
+  const res = await apiFetch(`/v1/onboarding/connect`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ clusterId, namespace }),
   })
-  if (!res.ok) throw new Error((await res.text()) || "Could not start onboarding")
+  if (!res.ok) throw new Error((await res.text()) || describeStatus(res.status, res.statusText))
   return res.json()
 }
 
 export async function onboardingStatus(clusterId: string): Promise<OnboardingStatus> {
-  const res = await fetch(`${API_URL}/v1/onboarding/status?clusterId=${encodeURIComponent(clusterId)}`, {
-    cache: "no-store",
-  })
-  if (!res.ok) throw new Error(`status check failed (${res.status})`)
+  const res = await apiFetch(`/v1/onboarding/status?clusterId=${encodeURIComponent(clusterId)}`)
+  if (!res.ok) throw new Error(describeStatus(res.status, res.statusText))
   return res.json()
 }
 
@@ -57,10 +68,10 @@ export async function onboardingStatus(clusterId: string): Promise<OnboardingSta
  * before any inference service has been observed.
  */
 export async function setSLO(ttftP95Ms: number, model?: string): Promise<void> {
-  const res = await fetch(`${API_URL}/v1/slos`, {
+  const res = await apiFetch(`/v1/slos`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model: model ?? "", ttftP95Ms, note: model ? "Set during onboarding" : "" }),
   })
-  if (!res.ok) throw new Error((await res.text()) || "Could not save the target")
+  if (!res.ok) throw new Error((await res.text()) || describeStatus(res.status, res.statusText))
 }

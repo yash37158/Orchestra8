@@ -1,7 +1,7 @@
 import { Correlation } from "@orchestr8/contracts"
 import { z } from "zod"
+import { API_URL, apiFetch, describeStatus } from "@/lib/api/fetch"
 
-const API_URL = process.env.ORCHESTR8_API_URL ?? "http://localhost:8088"
 
 const SeriesResponse = z.object({
   metric: z.string(),
@@ -16,7 +16,7 @@ export type Result<T> = { ok: true; data: T } | { ok: false; error: string }
 
 async function get<T>(path: string, schema: z.ZodType<T>): Promise<Result<T>> {
   try {
-    const res = await fetch(`${API_URL}${path}`, { cache: "no-store", signal: AbortSignal.timeout(5000) })
+    const res = await apiFetch(`${path}`, { cache: "no-store", signal: AbortSignal.timeout(5000) })
     if (res.status === 404) return { ok: false, error: "not-found" }
     if (!res.ok) return { ok: false, error: `orchestr8-api returned ${res.status}` }
     const body = await res.text()
@@ -60,7 +60,7 @@ export const getSeries = (metric: string, subject: string, from: string, to: str
   )
 
 export async function setCorrelationStatus(id: string, status: "open" | "acknowledged" | "suppressed") {
-  const res = await fetch(`${API_URL}/v1/correlations/${encodeURIComponent(id)}/status`, {
+  const res = await apiFetch(`/v1/correlations/${encodeURIComponent(id)}/status`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),

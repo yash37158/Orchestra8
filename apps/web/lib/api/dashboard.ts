@@ -1,6 +1,6 @@
 import { DashboardResponse } from "@orchestr8/contracts"
+import { API_URL, apiFetch, describeStatus } from "@/lib/api/fetch"
 
-const API_URL = process.env.ORCHESTR8_API_URL ?? "http://localhost:8088"
 
 export type DashboardResult =
   | { ok: true; data: DashboardResponse }
@@ -16,7 +16,7 @@ export type DashboardResult =
  */
 export async function getDashboard(): Promise<DashboardResult> {
   try {
-    const res = await fetch(`${API_URL}/v1/dashboard`, {
+    const res = await apiFetch(`/v1/dashboard`, {
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     })

@@ -1,6 +1,6 @@
 import { z } from "zod"
+import { API_URL, apiFetch, describeStatus } from "@/lib/api/fetch"
 
-const API_URL = process.env.ORCHESTR8_API_URL ?? "http://localhost:8088"
 
 export const AuditEntry = z.object({
   seq: z.number(),
@@ -29,8 +29,8 @@ export type AuditView = { entries: AuditEntry[]; verification: Verification | nu
 export async function getAudit(): Promise<AuditView> {
   try {
     const [listRes, verifyRes] = await Promise.all([
-      fetch(`${API_URL}/v1/audit?limit=100`, { cache: "no-store", signal: AbortSignal.timeout(5000) }),
-      fetch(`${API_URL}/v1/audit/verify`, { cache: "no-store", signal: AbortSignal.timeout(5000) }),
+      apiFetch(`/v1/audit?limit=100`, { cache: "no-store", signal: AbortSignal.timeout(5000) }),
+      apiFetch(`/v1/audit/verify`, { cache: "no-store", signal: AbortSignal.timeout(5000) }),
     ])
     if (!listRes.ok) return { entries: [], verification: null, error: `orchestr8-api returned ${listRes.status}` }
     const list = z.object({ entries: z.array(AuditEntry).nullable() }).parse(await listRes.json())

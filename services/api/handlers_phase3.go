@@ -21,15 +21,6 @@ func decodeJSON(r *http.Request, v any) error {
 	return json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(v)
 }
 
-func actorOf(r *http.Request, fallback string) string {
-	// Placeholder for real identity. Named explicitly so it is obvious this is
-	// not authentication and must be replaced before anyone relies on the log.
-	if a := r.Header.Get("X-Orchestr8-Actor"); a != "" {
-		return a
-	}
-	return fallback
-}
-
 func handleDeployments(w http.ResponseWriter, r *http.Request, d *deployer) {
 	switch r.Method {
 	case http.MethodGet:
@@ -251,7 +242,7 @@ func handleScan(w http.ResponseWriter, r *http.Request, s *scanner, d *deployer)
 		// Image finding: remediation IS a deploy, through the same reviewed path.
 		dep, err := d.Apply(r.Context(), DeployRequest{
 			App: req.App, ClusterID: req.ClusterID,
-			Image: target.Package + ":" + fix,
+			Image:    target.Package + ":" + fix,
 			Strategy: "rolling", Actor: actorOf(r, "auto-remediate"), Approved: true,
 		}, &Preflight{CanApply: true})
 		if err != nil {

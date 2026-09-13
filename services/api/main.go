@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	addr := env("ORCHESTR8_ADDR", ":8088")  // 8080 is a common local collision (Tomcat, etc.)
+	addr := env("ORCHESTR8_ADDR", ":8088") // 8080 is a common local collision (Tomcat, etc.)
 	origins := strings.Split(env("ORCHESTR8_CORS_ORIGINS", "http://localhost:3000"), ",")
 
 	ch := newCHClient(env("ORCHESTR8_CLICKHOUSE_URL", "http://127.0.0.1:8123/?database=orchestr8&output_format_json_quote_64bit_integers=0"))
@@ -29,23 +29,21 @@ func main() {
 	defer cancel()
 	go eng.run(ctx)
 
+	// Everything on this mux requires a session; /healthz is registered on the
+	// outer mux further down, outside the check.
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
 	// What the rules actually see. Correlation bugs are almost always signal
 	// bugs, and reading the inputs beats guessing from the verdict.
 	org := defaultOrg()
 	aud := &auditLog{org: org, ch: ch}
 	dep := &deployer{
-		org:   org,
-		repo:  env("ORCHESTR8_GITOPS_REPO", "../../.localdev/gitops"),
-		ch:    ch, slos: slos, audit: aud,
+		org:  org,
+		repo: env("ORCHESTR8_GITOPS_REPO", "../../.localdev/gitops"),
+		ch:   ch, slos: slos, audit: aud,
 	}
 	scn := &scanner{
 		org: org,
-		ch: ch, audit: aud,
+		ch:  ch, audit: aud,
 		bin:    env("ORCHESTR8_TRIVY_BIN", "trivy"),
 		docker: env("ORCHESTR8_DOCKER_CONFIG", "../../.localdev/dockerconfig"),
 	}
@@ -112,7 +110,7 @@ func main() {
 		for _, s := range sig {
 			v := view{
 				ClusterID: s.ClusterID,
-				Model: s.Model, SloMs: s.SloMs, TtftP95Now: round1(s.TtftP95Now),
+				Model:     s.Model, SloMs: s.SloMs, TtftP95Now: round1(s.TtftP95Now),
 				Breaching: s.Breaching(), HasBaseline: s.HasBaseline,
 				ReqRateNow: round1(s.ReqRateNow), ReqRateBase: round1(s.ReqRateBase),
 				ReqDeltaPct: round1(s.ReqRateDeltaPct()), KvCachePct: s.KvCachePct,
@@ -136,9 +134,21 @@ func main() {
 		handleCorrelation(w, r, ch)
 	})
 
+	// Authentication wraps the whole mux rather than each handler: a route
+	// added later is protected by being on the mux, not by someone remembering
+	// to guard it. /healthz is registered on the outer mux below so a load
+	// balancer can probe without a session.
+	authed := requireIdentity(ctrl.lookupSession, mux)
+	root := http.NewServeMux()
+	root.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	root.Handle("/", authed)
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           cors(origins, mux),
+		Handler:           cors(origins, root),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -285,6 +295,9 @@ func cors(allowed []string, next http.Handler) http.Handler {
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			// Cookies only travel cross-origin when both sides opt in, and the
+			// allowed origin must then be an exact match — never "*".
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -300,4 +313,3 @@ func env(key, fallback string) string {
 	}
 	return fallback
 }
-

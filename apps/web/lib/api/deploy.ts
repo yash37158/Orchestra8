@@ -1,4 +1,4 @@
-const API_URL = process.env.ORCHESTR8_API_URL ?? "http://localhost:8088"
+import { API_URL, apiFetch, describeStatus } from "@/lib/api/fetch"
 
 export type PreflightCheck = {
   id: string
@@ -38,7 +38,7 @@ export type DeployInput = {
 }
 
 async function post(path: string, body: unknown, actor: string) {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await apiFetch(`${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Orchestr8-Actor": actor },
     body: JSON.stringify(body),

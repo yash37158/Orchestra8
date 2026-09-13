@@ -1,13 +1,13 @@
 import { z } from "zod"
 import { ScansResponse, ScanFinding, InferenceResponse, ConfigResponse, SeriesResponse, type SeriesPoint } from "@orchestr8/contracts"
+import { API_URL, apiFetch, describeStatus } from "@/lib/api/fetch"
 
-const API_URL = process.env.ORCHESTR8_API_URL ?? "http://localhost:8088"
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: string }
 
 async function get<T>(path: string, schema: z.ZodType<T>): Promise<Result<T>> {
   try {
-    const res = await fetch(`${API_URL}${path}`, { cache: "no-store", signal: AbortSignal.timeout(8000) })
+    const res = await apiFetch(`${path}`, { cache: "no-store", signal: AbortSignal.timeout(8000) })
     if (!res.ok) return { ok: false, error: `orchestr8-api returned ${res.status} ${res.statusText}` }
     const body = await res.text()
     let json: unknown

@@ -145,6 +145,58 @@ func tokenPrefix(tok string) string {
 	return tok
 }
 
+// sessionIdentity is the human behind a request. It comes out of the same
+// control plane as tokenIdentity and obeys the same rule: resolved from a
+// credential, never read off the request.
+type sessionIdentity struct {
+	UserID string
+	Email  string
+	Org    string
+	Role   string
+}
+
+var errNoSession = errors.New("no valid session")
+
+// lookupSession resolves a browser session cookie to the org and role it may
+// act with. Deliberately the same shape as lookupToken — humans and machines
+// present different credentials, but neither gets to assert who it is, and
+// revoking either is one row.
+//
+// Auth.js must be configured with the database session strategy for this to
+// work; its default is a signed JWT, which leaves no row here to revoke.
+//
+// ponytail: a user in several orgs gets their earliest membership. Deferring
+// the org switcher until somebody actually has two is cheaper than putting an
+// org segment in every route today.
+func (c *control) lookupSession(ctx context.Context, token string) (sessionIdentity, error) {
+	if c.db == nil {
+		return sessionIdentity{}, errors.New("control plane not configured")
+	}
+	const q = `
+SELECT u.id::text, u.email, o.slug, m.role
+  FROM sessions s
+  JOIN users u         ON u.id = s."userId"
+  JOIN memberships m   ON m.user_id = u.id
+  JOIN organizations o ON o.id = m.org_id
+ WHERE s."sessionToken" = $1
+   AND s.expires > now()
+ ORDER BY m.created_at, o.slug
+ LIMIT 1`
+
+	var id sessionIdentity
+	err := c.db.QueryRowContext(ctx, q, token).Scan(&id.UserID, &id.Email, &id.Org, &id.Role)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// One error for expired, unknown, and "signed in but belongs to no
+		// organisation". Distinguishing them tells an attacker which half of a
+		// guess landed.
+		return sessionIdentity{}, errNoSession
+	case err != nil:
+		return sessionIdentity{}, err
+	}
+	return id, nil
+}
+
 // newToken mints a credential. 24 bytes of crypto/rand: the token is the only
 // thing standing between a stranger and a tenant's data, so it is not derived
 // from anything guessable.

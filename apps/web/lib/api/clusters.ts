@@ -1,6 +1,6 @@
 import { ClustersResponse } from "@orchestr8/contracts"
+import { API_URL, apiFetch, describeStatus } from "@/lib/api/fetch"
 
-const API_URL = process.env.ORCHESTR8_API_URL ?? "http://localhost:8088"
 
 export type ClustersResult =
   | { ok: true; data: ClustersResponse }
@@ -8,7 +8,7 @@ export type ClustersResult =
 
 export async function getClusters(): Promise<ClustersResult> {
   try {
-    const res = await fetch(`${API_URL}/v1/clusters`, {
+    const res = await apiFetch(`/v1/clusters`, {
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     })

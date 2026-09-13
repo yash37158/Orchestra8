@@ -88,7 +88,7 @@ func testGateway(t *testing.T, lookup func(context.Context, string) (tokenIdenti
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(up.Close)
-	return &gateway{lookup: lookup, upstream: up.URL, http: up.Client()}, &forwarded
+	return &gateway{lookup: lookup, upstream: up.URL, http: up.Client(), rejects: &rejectLog{}}, &forwarded
 }
 
 func post(g *gateway, auth string, body []byte) *httptest.ResponseRecorder {
@@ -229,5 +229,19 @@ func TestGatewayRefusesOversizedDecompression(t *testing.T) {
 	}
 	if *forwarded != 0 {
 		t.Errorf("forwarded %d batches, want 0", *forwarded)
+	}
+}
+
+// A gateway with no rejection log must still refuse cleanly. This path is
+// reachable by anyone holding a wrong token, so a panic here is a denial of
+// service that needs no credential at all.
+func TestGatewaySurvivesWithoutARejectLog(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer up.Close()
+	g := &gateway{upstream: up.URL, http: up.Client(), // rejects deliberately nil
+		lookup: func(context.Context, string) (tokenIdentity, error) { return tokenIdentity{}, errNoToken }}
+
+	if got := post(g, "Bearer orch8_x", realBatch(t)).Code; got != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", got)
 	}
 }

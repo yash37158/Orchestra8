@@ -117,11 +117,12 @@ func handleConnect(w http.ResponseWriter, r *http.Request, ctrl *control, apiBas
 
 // handleOnboardingStatus powers the waiting screen. It answers one question per
 // component: has anything arrived, and if not, what should the operator check?
-func handleOnboardingStatus(w http.ResponseWriter, r *http.Request, c *chClient) {
+func handleOnboardingStatus(w http.ResponseWriter, r *http.Request, c *chClient, ctrl *control, rejects *rejectLog) {
 	cluster := r.URL.Query().Get("clusterId")
 	st := OnboardingStatus{ClusterID: cluster, CheckedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 
-	filter := " AND " + orgClauseRaw(orgFromRequest(r))
+	org := orgFromRequest(r)
+	filter := " AND " + orgClauseRaw(org)
 	if cluster != "" {
 		filter += fmt.Sprintf(" AND ResourceAttributes['orchestr8.cluster.id'] = %s", chQuote(cluster))
 	}
@@ -135,12 +136,23 @@ func handleOnboardingStatus(w http.ResponseWriter, r *http.Request, c *chClient)
 		`SELECT count() AS n FROM orchestr8.otel_metrics_gauge WHERE TimeUnix >= now() - INTERVAL 3 MINUTE%s`, filter), &any)
 	collectorSeen := len(any) > 0 && any[0].N > 0
 
+	detail := pick(collectorSeen, fmt.Sprintf("%d samples in the last 3 minutes", countOf(any)), "No telemetry received yet")
+	hint := pick(collectorSeen, "",
+		"Check the gateway is running: kubectl -n orchestr8 get pods -l app.kubernetes.io/component=gateway")
+	// Being turned away and never arriving look the same from here — no rows
+	// either way, and every pod Running in both. When the gateway knows which
+	// it was, say so: the two have nothing in common as fixes.
+	if !collectorSeen {
+		if n, why := rejects.explain(org, cluster, ctrl.tokenPrefixesFor(r.Context(), org, cluster), time.Now()); why != "" {
+			detail = fmt.Sprintf("%d batch(es) refused in the last %d minutes", n, int(rejectWindow.Minutes()))
+			hint = why
+		}
+	}
 	st.Components = append(st.Components, ComponentStatus{
 		ID: "collector", Name: "Collector",
-		State:  stateOf(collectorSeen),
-		Detail: pick(collectorSeen, fmt.Sprintf("%d samples in the last 3 minutes", countOf(any)), "No telemetry received yet"),
-		Hint: pick(collectorSeen, "",
-			"Check the gateway is running: kubectl -n orchestr8 get pods -l app.kubernetes.io/component=gateway"),
+		State:    stateOf(collectorSeen),
+		Detail:   detail,
+		Hint:     hint,
 		Observed: countOf(any),
 	})
 

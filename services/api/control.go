@@ -104,6 +104,47 @@ RETURNING o.slug, c.cluster_key`
 	return id, nil
 }
 
+// tokenPrefixesFor returns the prefix of every token ever issued for a
+// cluster, revoked ones included — a revoked token is exactly the case the
+// onboarding screen needs to explain. Prefixes are already stored in clear:
+// they exist so a human can tell two tokens apart without either being
+// readable, and 8 hex characters of 48 identify without unlocking.
+func (c *control) tokenPrefixesFor(ctx context.Context, org, clusterKey string) map[string]bool {
+	out := map[string]bool{}
+	if c.db == nil || clusterKey == "" {
+		return out
+	}
+	rows, err := c.db.QueryContext(ctx, `
+SELECT t.prefix FROM ingest_tokens t
+  JOIN clusters c      ON c.id = t.cluster_id
+  JOIN organizations o ON o.id = c.org_id
+ WHERE o.slug = $1 AND c.cluster_key = $2`, org, clusterKey)
+	if err != nil {
+		// A hint is not worth failing a status page over.
+		log.Printf("onboarding: token prefixes for %s/%s: %v", org, clusterKey, err)
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err == nil {
+			out[p] = true
+		}
+	}
+	return out
+}
+
+// tokenPrefix is the leading slice recorded against a refusal, matching what
+// registerCluster stores. Short tokens keep their whole length, which can
+// never equal a full-length issued prefix — so garbage cannot match by being
+// truncated.
+func tokenPrefix(tok string) string {
+	if len(tok) > 14 {
+		return tok[:14]
+	}
+	return tok
+}
+
 // newToken mints a credential. 24 bytes of crypto/rand: the token is the only
 // thing standing between a stranger and a tenant's data, so it is not derived
 // from anything guessable.
@@ -153,7 +194,7 @@ RETURNING id`, orgID, clusterKey, displayName).Scan(&clusterID); err != nil {
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO ingest_tokens (org_id, cluster_id, token_hash, prefix, name)
 VALUES ($1, $2, $3, $4, $5)`,
-		orgID, clusterID, hashToken(tok), tok[:14], "onboarding"); err != nil {
+		orgID, clusterID, hashToken(tok), tokenPrefix(tok), "onboarding"); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(); err != nil {

@@ -55,6 +55,10 @@ func main() {
 	// it, so connection problems surface per-request as a 503 instead.
 	ctrl := newControl(env("ORCHESTR8_CONTROL_DSN", "postgres://localhost:5432/orchestr8?sslmode=disable"))
 
+	// Written by the ingest gateway, read by the onboarding screen. Neither
+	// owns it, so it is built here and handed to both.
+	rejects := &rejectLog{}
+
 	// Where an in-cluster gateway ships telemetry: the ingest gateway below,
 	// not the collector. The collector's own OTLP port is bound to loopback so
 	// there is no way around the token check.
@@ -72,7 +76,7 @@ func main() {
 	mux.HandleFunc("/v1/onboarding/connect", func(w http.ResponseWriter, r *http.Request) {
 		handleConnect(w, r, ctrl, apiBase)
 	})
-	mux.HandleFunc("/v1/onboarding/status", func(w http.ResponseWriter, r *http.Request) { handleOnboardingStatus(w, r, ch) })
+	mux.HandleFunc("/v1/onboarding/status", func(w http.ResponseWriter, r *http.Request) { handleOnboardingStatus(w, r, ch, ctrl, rejects) })
 	mux.HandleFunc("/v1/slos", func(w http.ResponseWriter, r *http.Request) { handleSLOUpsert(w, r, slos, aud) })
 
 	mux.HandleFunc("/v1/deployments", func(w http.ResponseWriter, r *http.Request) { handleDeployments(w, r, dep) })
@@ -148,7 +152,7 @@ func main() {
 	// ponytail: same process for now. Split into its own binary when ingest
 	// throughput starts competing with query latency, not before.
 	gw := newGateway(ctrl, env("ORCHESTR8_COLLECTOR_OTLP", "http://127.0.0.1:4318"),
-		env("ORCHESTR8_COLLECTOR_SECRET_FILE", "../../.localdev/collector.secret"))
+		env("ORCHESTR8_COLLECTOR_SECRET_FILE", "../../.localdev/collector.secret"), rejects)
 	ingest := &http.Server{
 		Addr:              env("ORCHESTR8_INGEST_ADDR", ":4319"),
 		Handler:           gw.routes(),

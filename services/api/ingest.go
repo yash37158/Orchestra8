@@ -42,11 +42,14 @@ type gateway struct {
 	// binding is not enough when something else can route to the port.
 	upstreamSecret string
 	http           *http.Client
+	// Shared with the onboarding screen, which otherwise cannot tell a refused
+	// cluster from an absent one.
+	rejects *rejectLog
 }
 
-func newGateway(ctrl *control, upstream, secretFile string) *gateway {
+func newGateway(ctrl *control, upstream, secretFile string, rejects *rejectLog) *gateway {
 	g := &gateway{lookup: ctrl.lookupToken, upstream: strings.TrimRight(upstream, "/"),
-		http: &http.Client{Timeout: 30 * time.Second}}
+		http: &http.Client{Timeout: 30 * time.Second}, rejects: rejects}
 	b, err := os.ReadFile(secretFile)
 	if err != nil {
 		// Not fatal here: the collector will reject every forward, which is
@@ -89,6 +92,10 @@ func (g *gateway) handle(w http.ResponseWriter, r *http.Request) {
 	id, err := g.lookup(r.Context(), tok)
 	switch {
 	case errors.Is(err, errNoToken):
+		// Recorded but not logged. Logging every anonymous 401 hands a stranger
+		// a way to fill the disk; the ring buffer is bounded and is what the
+		// onboarding screen reads anyway.
+		g.rejects.add(rejection{Code: http.StatusUnauthorized, Prefix: tokenPrefix(tok)})
 		http.Error(w, "unknown or revoked token", http.StatusUnauthorized)
 		return
 	case err != nil:
@@ -145,6 +152,11 @@ func (g *gateway) handle(w http.ResponseWriter, r *http.Request) {
 			// somebody probing with a token they do hold.
 			log.Printf("ingest: rejected claim org=%q cluster=%q from a token for org=%q cluster=%q",
 				attrs["orchestr8.org.id"], attrs["orchestr8.cluster.id"], id.Org, id.Cluster)
+			g.rejects.add(rejection{
+				Code:       http.StatusForbidden,
+				ClaimedOrg: attrs["orchestr8.org.id"], ClaimedCluster: attrs["orchestr8.cluster.id"],
+				TokenOrg: id.Org, TokenCluster: id.Cluster,
+			})
 			http.Error(w, "payload does not belong to this token's cluster", http.StatusForbidden)
 			return
 		}

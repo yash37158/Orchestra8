@@ -15,7 +15,7 @@ SECRET  := .localdev/collector.secret
 LOGS    := .localdev/logs
 
 .PHONY: up down status logs store schema devkit collector api web \
-        check contract test fault surge healthy scenarios scan audit hook alerts verify-engine control-plane tenancy clean-store
+        check contract test fault surge healthy scenarios scan audit hook alerts verify-engine verify-ingest control-plane tenancy clean-store
 
 # ---------------------------------------------------------------- one command
 # The individual targets below run in the FOREGROUND, which is what you want
@@ -141,6 +141,9 @@ alerts:                      ## show alerts delivered so far
 	@test -s /tmp/hook-received.jsonl && python3 -c 'import json,sys;\
 [print(f"  {d[\"event\"]:<22} {d[\"severity\"]:<9} {d[\"cause\"]}\n    {d[\"link\"]}") \
 for d in map(json.loads, open("/tmp/hook-received.jsonl"))]' || echo "  no alerts delivered yet"
+
+verify-ingest:               ## prove the gateway: every attack fails, the one legitimate write lands
+	@bash scripts/verify-ingest.sh
 
 verify-engine:               ## prove the engine: inject known faults, assert the verdicts
 	@scripts/verify-engine.sh

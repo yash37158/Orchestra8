@@ -51,11 +51,16 @@ export async function onboardingStatus(clusterId: string): Promise<OnboardingSta
   return res.json()
 }
 
-export async function setSLO(model: string, ttftP95Ms: number): Promise<void> {
+/**
+ * Sets a p95 TTFT target. Omitting `model` sets the default that every
+ * unlisted model inherits — which is what onboarding wants, since it runs
+ * before any inference service has been observed.
+ */
+export async function setSLO(ttftP95Ms: number, model?: string): Promise<void> {
   const res = await fetch(`${API_URL}/v1/slos`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, ttftP95Ms, note: "Set during onboarding" }),
+    body: JSON.stringify({ model: model ?? "", ttftP95Ms, note: model ? "Set during onboarding" : "" }),
   })
   if (!res.ok) throw new Error((await res.text()) || "Could not save the target")
 }

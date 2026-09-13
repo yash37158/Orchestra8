@@ -248,7 +248,7 @@ func gpuName(g []struct {
 // introducing a second source of truth in the database.
 func handleSLOUpsert(w http.ResponseWriter, r *http.Request, s *sloStore, a *auditLog) {
 	if r.Method == http.MethodGet {
-		writeJSON(w, map[string]any{"models": s.All(), "default": defaultTtftSloMs})
+		writeJSON(w, map[string]any{"models": s.All(), "default": s.Fallback()})
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -256,19 +256,29 @@ func handleSLOUpsert(w http.ResponseWriter, r *http.Request, s *sloStore, a *aud
 		return
 	}
 	var req struct {
+		// Optional. Omitting it sets the default every unlisted model
+		// inherits, which is what onboarding means: it runs before any
+		// inference service has been seen, so it has no model to name.
 		Model     string  `json:"model"`
 		TtftP95Ms float64 `json:"ttftP95Ms"`
 		Note      string  `json:"note"`
 	}
-	if err := decodeJSON(r, &req); err != nil || req.Model == "" || req.TtftP95Ms <= 0 {
-		http.Error(w, "model and a positive ttftP95Ms are required", http.StatusBadRequest)
+	if err := decodeJSON(r, &req); err != nil || req.TtftP95Ms <= 0 {
+		http.Error(w, "a positive ttftP95Ms is required", http.StatusBadRequest)
 		return
 	}
 	if err := s.Upsert(req.Model, req.TtftP95Ms, req.Note); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		// A rejected model name is the caller's mistake, not the server's.
+		// Reporting it as a 500 hid the one error message that said what to
+		// send instead.
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_, _ = a.Append(r.Context(), actorOf(r, "operator"), "slo.set", req.Model, "", "allowed",
+	subject := req.Model
+	if subject == "" {
+		subject = "(default)"
+	}
+	_, _ = a.Append(r.Context(), actorOf(r, "operator"), "slo.set", subject, "", "allowed",
 		map[string]any{"ttftP95Ms": req.TtftP95Ms})
 	writeJSON(w, map[string]any{"model": req.Model, "ttftP95Ms": req.TtftP95Ms})
 }

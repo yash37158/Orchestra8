@@ -104,8 +104,12 @@ export function OnboardingFlow() {
   const finish = async () => {
     setBusy(true); setError(null)
     try {
-      const model = status?.firstSignal ? "default" : "default"
-      await setSLO(model, slo)
+      // No model: this screen has no model picker, and firstSignal.model is
+      // the GPU's model ("NVIDIA H100 80GB HBM3"), not an inference model.
+      // Both branches of the ternary that used to be here returned the string
+      // "default", which the API stored as a model by that name — so the
+      // threshold applied to nothing and the step reported success anyway.
+      await setSLO(slo)
       router.push("/dashboard")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save the target")

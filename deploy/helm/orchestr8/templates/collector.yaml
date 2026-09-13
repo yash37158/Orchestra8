@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "orchestr8.fullname" . }}-collector
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "orchestr8.labels" . | nindent 4 }}
+spec:
+  # ClusterIP, and never in the Ingress. This is the component that writes; the
+  # gateway in front of it is what decides whose data a batch is.
+  type: ClusterIP
+  ports:
+    - { port: 4318, targetPort: otlp, name: otlp }
+    - { port: 13133, targetPort: health, name: health }
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: collector
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "orchestr8.fullname" . }}-collector
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "orchestr8.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.collector.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: collector
+  template:
+    metadata:
+      labels:
+        {{- include "orchestr8.labels" . | nindent 8 }}
+        app.kubernetes.io/component: collector
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/collector-config.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "orchestr8.serviceAccountName" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: collector
+          image: "{{ .Values.collector.image }}:{{ .Values.collector.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--config=/etc/otel/config.yaml"]
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            {{- if not .Values.clickhouse.external.url }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "orchestr8.fullname" . }}-clickhouse, key: CLICKHOUSE_PASSWORD }
+            {{- end }}
+          ports:
+            - { containerPort: 4318, name: otlp }
+            - { containerPort: 13133, name: health }
+          volumeMounts:
+            - { name: config, mountPath: /etc/otel, readOnly: true }
+            - { name: ingest-secret, mountPath: /etc/orchestr8, readOnly: true }
+          livenessProbe:
+            httpGet: { path: /, port: health }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources: {{- toYaml .Values.collector.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap: { name: {{ include "orchestr8.fullname" . }}-collector }
+        - name: ingest-secret
+          secret: { secretName: {{ include "orchestr8.fullname" . }}-ingest }

@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "orchestr8.fullname" . }}-collector
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "orchestr8.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    # The single writer to ClickHouse.
+    #
+    # Authenticated, not merely unexposed. Every batch arrives from the ingest
+    # gateway, which has already checked the customer's token and that the
+    # payload belongs to the tenant it names. This receiver accepts only the
+    # gateway's own secret, so reaching the port is not enough — a receiver
+    # that trusts its network trusts whoever ends up on that network.
+    receivers:
+      otlp:
+        protocols:
+          http:
+            endpoint: 0.0.0.0:4318
+            auth:
+              authenticator: bearertokenauth/ingest
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      batch:
+        timeout: 5s
+        send_batch_size: 8192
+
+    exporters:
+      clickhouse:
+        endpoint: tcp://{{ include "orchestr8.fullname" . }}-clickhouse:9000?dial_timeout=10s
+        database: {{ .Values.clickhouse.database }}
+        username: {{ .Values.clickhouse.username }}
+        password: ${env:CLICKHOUSE_PASSWORD}
+        ttl: 720h
+        # The exporter owns the otel_* table layout; schema.sql owns only the
+        # rollups built on top. Fighting it over DDL is how you get a silent
+        # write failure on a version bump.
+        create_schema: true
+        retry_on_failure: { enabled: true, initial_interval: 5s, max_interval: 30s }
+        sending_queue: { enabled: true, num_consumers: 4, queue_size: 1000 }
+
+    extensions:
+      health_check: { endpoint: 0.0.0.0:13133 }
+      bearertokenauth/ingest:
+        scheme: Bearer
+        filename: /etc/orchestr8/ingest.secret
+
+    service:
+      extensions: [health_check, bearertokenauth/ingest]
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [clickhouse]
+      telemetry:
+        logs: { level: warn }

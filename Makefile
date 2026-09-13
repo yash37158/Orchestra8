@@ -12,10 +12,12 @@
 CH_DATA := .localdev/clickhouse
 OTELCOL := .localdev/bin/otelcol-contrib
 SECRET  := .localdev/collector.secret
+TAG     ?= dev
+PLATFORM_NS ?= orchestr8-platform
 LOGS    := .localdev/logs
 
 .PHONY: up down status logs store schema devkit collector api web \
-        check contract test fault surge healthy scenarios scan audit hook alerts verify-engine verify-ingest verify-auth control-plane tenancy clean-store
+        check contract test fault surge healthy scenarios scan audit hook alerts verify-engine verify-ingest verify-auth images deploy undeploy control-plane tenancy clean-store
 
 # ---------------------------------------------------------------- one command
 # The individual targets below run in the FOREGROUND, which is what you want
@@ -141,6 +143,18 @@ alerts:                      ## show alerts delivered so far
 	@test -s /tmp/hook-received.jsonl && python3 -c 'import json,sys;\
 [print(f"  {d[\"event\"]:<22} {d[\"severity\"]:<9} {d[\"cause\"]}\n    {d[\"link\"]}") \
 for d in map(json.loads, open("/tmp/hook-received.jsonl"))]' || echo "  no alerts delivered yet"
+
+images:                      ## build the platform container images
+	docker build -t orchestr8/api:$(TAG) -f services/api/Dockerfile .
+	docker build -t orchestr8/web:$(TAG) -f apps/web/Dockerfile .
+
+deploy:                      ## install the platform into the current kube context
+	@helm upgrade --install orchestr8 deploy/helm/orchestr8 \
+		-n $(PLATFORM_NS) --create-namespace --set image.tag=$(TAG)
+	@echo "  kubectl -n $(PLATFORM_NS) port-forward svc/orchestr8-orchestr8-web 8080:3000"
+
+undeploy:                    ## remove the platform (volumes and secrets are kept)
+	@helm uninstall orchestr8 -n $(PLATFORM_NS)
 
 verify-auth:                 ## prove sign-in: no credential reaches no data, and revocation is immediate
 	@bash scripts/verify-auth.sh

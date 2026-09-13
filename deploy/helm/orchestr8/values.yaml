@@ -1,0 +1,117 @@
+# Orchestr8, the platform.
+#
+# Two things are exposed to the outside world and nothing else:
+#   web      the UI people sign in to
+#   ingest   where customer collectors send telemetry, authenticated by token
+#
+# The query API and the collector are ClusterIP only. The collector in
+# particular must never be reachable directly — it is the one component that
+# writes to ClickHouse, and the ingest gateway in front of it is what checks
+# that a batch belongs to the tenant it claims.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: ""            # e.g. ghcr.io/yash37158 — empty means a local image
+  pullPolicy: IfNotPresent
+  tag: dev
+
+api:
+  replicas: 1
+  image: orchestr8/api
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 512Mi }
+  # The correlation engine runs inside the API process on a timer.
+  detectInterval: 30s
+  # Holds SLO thresholds edited through the UI and the GitOps working tree
+  # deploys commit into. Without it both reset on every restart.
+  persistence:
+    enabled: true
+    size: 2Gi
+
+web:
+  replicas: 1
+  image: orchestr8/web
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+  # Where browsers reach the UI. Used for OAuth callbacks, so it has to match
+  # what is registered with the identity provider.
+  publicUrl: ""
+
+collector:
+  image: otel/opentelemetry-collector-contrib
+  tag: "0.160.0"
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
+# ---------------------------------------------------------------- data stores
+#
+# Both bundle a single-replica StatefulSet, which is right for evaluation and
+# wrong for production. Point `external` at a managed service before anyone
+# depends on the data: neither of these has a backup, a replica, or a failover.
+
+postgres:
+  enabled: true
+  image: postgres:18-alpine
+  storage: 5Gi
+  database: orchestr8
+  username: orchestr8
+  # Generated and kept in a Secret when empty.
+  password: ""
+  external:
+    dsn: ""               # postgres://user:pass@host:5432/orchestr8?sslmode=require
+
+clickhouse:
+  enabled: true
+  image: clickhouse/clickhouse-server:25.3
+  storage: 50Gi
+  database: orchestr8
+  username: orchestr8
+  password: ""
+  external:
+    url: ""               # http://host:8123/?database=orchestr8
+
+# --------------------------------------------------------------------- secrets
+auth:
+  # Signs session cookies. Generated once and preserved across upgrades —
+  # rotating it signs everyone out.
+  secret: ""
+  google: { clientId: "", clientSecret: "" }
+  github: { clientId: "", clientSecret: "" }
+  existingSecret: ""      # provide all of the above yourself instead
+
+# ------------------------------------------------------------------- ingress
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # The UI.
+  host: ""                # orchestr8.example.com
+  # Where customer collectors POST OTLP. Separate hostname so the two can be
+  # scaled, rate-limited and firewalled independently.
+  ingestHost: ""          # ingest.orchestr8.example.com
+  tls: []
+
+serviceAccount:
+  create: true
+  name: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  # Numeric, not a name. Kubernetes cannot tell whether a USER directive naming
+  # a user is root, so it refuses to start the container at all — all three
+  # images are built around this uid.
+  runAsUser: 10001
+  runAsGroup: 10001
+  # So the mounted ingest secret is readable by that user.
+  fsGroup: 10001
+  seccompProfile: { type: RuntimeDefault }
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: { drop: ["ALL"] }

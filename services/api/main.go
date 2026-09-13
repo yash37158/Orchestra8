@@ -15,6 +15,23 @@ import (
 )
 
 func main() {
+	// A one-shot mode, run from a Job before the Deployments roll. Exits when
+	// the schemas are in place so the Job can report success.
+	if len(os.Args) > 1 && os.Args[1] == "-migrate" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if err := migrate(ctx,
+			env("ORCHESTR8_CONTROL_DSN", "postgres://localhost:5432/orchestr8?sslmode=disable"),
+			env("ORCHESTR8_CLICKHOUSE_URL", "http://127.0.0.1:8123/?database=orchestr8"),
+			env("ORCHESTR8_PG_SCHEMA", "/migrations/001_control_plane.sql"),
+			env("ORCHESTR8_CH_SCHEMA", "/schema.sql"),
+		); err != nil {
+			log.Fatalf("migrate: %v", err)
+		}
+		log.Print("migrate: done")
+		return
+	}
+
 	addr := env("ORCHESTR8_ADDR", ":8088") // 8080 is a common local collision (Tomcat, etc.)
 	origins := strings.Split(env("ORCHESTR8_CORS_ORIGINS", "http://localhost:3000"), ",")
 

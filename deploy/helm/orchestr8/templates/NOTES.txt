@@ -1,0 +1,42 @@
+Orchestr8 {{ .Chart.AppVersion }} is installing into {{ .Release.Namespace }}.
+
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+{{- if not (or .Values.auth.google.clientId .Values.auth.github.clientId .Values.auth.existingSecret) }}
+
+  ! NOBODY CAN SIGN IN YET.
+
+    No OAuth provider is configured, so the sign-in page has no working button.
+    Register an app with Google or GitHub, callback:
+
+      {{ .Values.web.publicUrl | default "http://localhost:8080" }}/api/auth/callback/google
+
+    then:
+
+      helm upgrade {{ .Release.Name }} ... \
+        --set auth.google.clientId=... --set auth.google.clientSecret=...
+
+    The first account to sign in founds the organisation and owns it. Everyone
+    after that needs a membership somebody inside creates — so sign in yourself
+    before sharing the address.
+{{- end }}
+{{- if not .Values.ingress.enabled }}
+
+  Ingress is off, so nothing is published. To look around:
+
+      kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "orchestr8.fullname" . }}-web 8080:3000
+
+    then open http://localhost:8080
+{{- end }}
+{{- if or .Values.postgres.enabled .Values.clickhouse.enabled }}
+
+  ! BUNDLED DATA STORES ARE FOR EVALUATION.
+
+    {{ if .Values.postgres.enabled }}Postgres{{ end }}{{ if and .Values.postgres.enabled .Values.clickhouse.enabled }} and {{ end }}{{ if .Values.clickhouse.enabled }}ClickHouse{{ end }} run as a single replica with no backup,
+    no failover and no point-in-time recovery. Point postgres.external.dsn and
+    clickhouse.external.url at managed services before anyone relies on the data.
+{{- end }}
+
+  Connecting a cluster: sign in, open Onboarding, and the screen prints a helm
+  command carrying a token minted for that cluster. The token decides which
+  organisation the telemetry belongs to — the payload only gets to agree.

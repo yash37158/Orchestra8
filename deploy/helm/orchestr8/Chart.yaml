@@ -1,0 +1,6 @@
+apiVersion: v2
+name: orchestr8
+description: GPU and inference observability — the platform itself, not the collector customers install.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

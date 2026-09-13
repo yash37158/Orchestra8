@@ -1,0 +1,170 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "orchestr8.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "orchestr8.labels" . | nindent 4 }}
+spec:
+  # ClusterIP for both ports. The query port is reached only by the UI's server
+  # side; the ingest port is reached from outside through the Ingress, which is
+  # where TLS and rate limiting belong.
+  type: ClusterIP
+  ports:
+    - { port: 8088, targetPort: api, name: api }
+    - { port: 4319, targetPort: ingest, name: ingest }
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "orchestr8.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "orchestr8.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "orchestr8.labels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+      annotations:
+        # Roll the pods when the shared secret changes, or the gateway keeps
+        # presenting the old one and every write fails with a 401 nobody asked for.
+        checksum/ingest-secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "orchestr8.serviceAccountName" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        # Schema bootstrap.
+        #
+        # An init container rather than a Helm pre-install hook: a hook runs
+        # before the chart's own StatefulSets exist, so the migration sat
+        # waiting for a Postgres that had not been created yet and the install
+        # failed on a timeout. Here the ordering is Kubernetes's problem —
+        # the pod restarts until the stores answer, and the API cannot start
+        # against a schema that is not there.
+        - name: migrate
+          image: {{ include "orchestr8.image" (dict "root" . "repo" .Values.api.image "tag" .Values.image.tag) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["-migrate"]
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            {{- if not .Values.postgres.external.dsn }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "orchestr8.fullname" . }}-postgres, key: POSTGRES_PASSWORD }
+            {{- end }}
+            {{- if not .Values.clickhouse.external.url }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "orchestr8.fullname" . }}-clickhouse, key: CLICKHOUSE_PASSWORD }
+            {{- end }}
+            - name: ORCHESTR8_CONTROL_DSN
+              value: {{ include "orchestr8.postgresDsn" . | quote }}
+            - name: ORCHESTR8_CLICKHOUSE_URL
+              value: {{ include "orchestr8.clickhouseUrl" . | quote }}
+      containers:
+        - name: api
+          image: {{ include "orchestr8.image" (dict "root" . "repo" .Values.api.image "tag" .Values.image.tag) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - { containerPort: 8088, name: api }
+            - { containerPort: 4319, name: ingest }
+          env:
+            {{- if not .Values.postgres.external.dsn }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "orchestr8.fullname" . }}-postgres, key: POSTGRES_PASSWORD }
+            {{- end }}
+            {{- if not .Values.clickhouse.external.url }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "orchestr8.fullname" . }}-clickhouse, key: CLICKHOUSE_PASSWORD }
+            {{- end }}
+            - name: ORCHESTR8_CONTROL_DSN
+              value: {{ include "orchestr8.postgresDsn" . | quote }}
+            - name: ORCHESTR8_CLICKHOUSE_URL
+              value: {{ include "orchestr8.clickhouseUrl" . | quote }}
+            - name: ORCHESTR8_ADDR
+              value: ":8088"
+            - name: ORCHESTR8_INGEST_ADDR
+              value: ":4319"
+            # Where the gateway forwards a batch once the token checks out.
+            - name: ORCHESTR8_COLLECTOR_OTLP
+              value: "http://{{ include "orchestr8.fullname" . }}-collector:4318"
+            - name: ORCHESTR8_COLLECTOR_SECRET_FILE
+              value: /etc/orchestr8/ingest.secret
+            # What the onboarding screen tells a customer to point their chart at.
+            - name: ORCHESTR8_INGEST_ENDPOINT
+              value: {{ if .Values.ingress.ingestHost }}"https://{{ .Values.ingress.ingestHost }}"{{ else }}"http://{{ include "orchestr8.fullname" . }}-api:4319"{{ end }}
+            - name: ORCHESTR8_CORS_ORIGINS
+              value: {{ .Values.web.publicUrl | default (printf "http://%s-web:3000" (include "orchestr8.fullname" .)) | quote }}
+            - name: ORCHESTR8_DETECT_INTERVAL
+              value: {{ .Values.api.detectInterval | quote }}
+            # SLOs are edited through the UI, so this one lives on the volume
+            # rather than in the image. Absent on a fresh install, which the
+            # store handles by falling back to its defaults until the first
+            # write creates it.
+            - name: ORCHESTR8_SLO_FILE
+              value: /var/lib/orchestr8/slos.json
+            # Read-only, from the image.
+            - name: ORCHESTR8_NOTIFY_FILE
+              value: /config/notifications.json
+            - name: ORCHESTR8_RATES_FILE
+              value: /config/gpu-rates.json
+            # Deploy writes real git commits on a branch and never to a
+            # cluster directly, so it needs a working tree that survives a
+            # restart.
+            - name: ORCHESTR8_GITOPS_REPO
+              value: /var/lib/orchestr8/gitops
+            - name: ORCHESTR8_TRIVY_BIN
+              value: /usr/local/bin/trivy
+            - name: HOME
+              value: /var/lib/orchestr8
+          volumeMounts:
+            - { name: ingest-secret, mountPath: /etc/orchestr8, readOnly: true }
+            - { name: state, mountPath: /var/lib/orchestr8 }
+            - { name: tmp, mountPath: /tmp }
+          livenessProbe:
+            httpGet: { path: /healthz, port: api }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /healthz, port: api }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources: {{- toYaml .Values.api.resources | nindent 12 }}
+      volumes:
+        - name: ingest-secret
+          secret:
+            secretName: {{ include "orchestr8.fullname" . }}-ingest
+        - name: tmp
+          emptyDir: {}
+        - name: state
+          {{- if .Values.api.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "orchestr8.fullname" . }}-state
+          {{- else }}
+          # emptyDir loses SLO edits and the GitOps working tree on every
+          # restart. Fine for a look around, wrong for anything else.
+          emptyDir: {}
+          {{- end }}
+{{- if .Values.api.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "orchestr8.fullname" . }}-state
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "orchestr8.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: {{ .Values.api.persistence.size | quote }} } }
+{{- end }}

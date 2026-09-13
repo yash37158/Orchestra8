@@ -1,0 +1,126 @@
+{{- if .Values.postgres.enabled }}
+{{- if not .Values.postgres.external.dsn }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "orchestr8.fullname" . }}-postgres
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "orchestr8.labels" . | nindent 4 }}
+spec:
+  # Headless: a StatefulSet of one, addressed by name. Not exposed outside the
+  # cluster — the control plane holds users, sessions and token hashes.
+  clusterIP: None
+  ports: [{ port: 5432, name: postgres }]
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "orchestr8.fullname" . }}-postgres
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "orchestr8.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "orchestr8.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        {{- include "orchestr8.labels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image | quote }}
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "orchestr8.fullname" . }}-postgres, key: POSTGRES_PASSWORD }
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports: [{ containerPort: 5432, name: postgres }]
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "{{ .Values.postgres.username }}", "-d", "{{ .Values.postgres.database }}"] }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: {{ .Values.postgres.storage | quote }} } }
+{{- end }}
+{{- end }}
+{{- if .Values.clickhouse.enabled }}
+{{- if not .Values.clickhouse.external.url }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "orchestr8.fullname" . }}-clickhouse
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "orchestr8.labels" . | nindent 4 }}
+spec:
+  ports:
+    - { port: 8123, name: http }
+    - { port: 9000, name: native }
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: clickhouse
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "orchestr8.fullname" . }}-clickhouse
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "orchestr8.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "orchestr8.fullname" . }}-clickhouse
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: clickhouse
+  template:
+    metadata:
+      labels:
+        {{- include "orchestr8.labels" . | nindent 8 }}
+        app.kubernetes.io/component: clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: {{ .Values.clickhouse.image | quote }}
+          env:
+            - name: CLICKHOUSE_DB
+              value: {{ .Values.clickhouse.database | quote }}
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.clickhouse.username | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "orchestr8.fullname" . }}-clickhouse, key: CLICKHOUSE_PASSWORD }
+          ports:
+            - { containerPort: 8123, name: http }
+            - { containerPort: 9000, name: native }
+          readinessProbe:
+            httpGet: { path: /ping, port: 8123 }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/clickhouse }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: {{ .Values.clickhouse.storage | quote }} } }
+{{- end }}
+{{- end }}

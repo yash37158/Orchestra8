@@ -1,0 +1,47 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "orchestr8.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "orchestr8.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    # Exactly two things are published. The query API and the collector are
+    # absent on purpose: the first is reached only by the UI's server side, and
+    # the second is the one component that writes to ClickHouse.
+    {{- if .Values.ingress.host }}
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "orchestr8.fullname" . }}-web
+                port: { number: 3000 }
+    {{- end }}
+    {{- if .Values.ingress.ingestHost }}
+    # Customer collectors. A separate hostname so it can be rate-limited and
+    # firewalled without touching the UI, and so a flood of telemetry cannot
+    # take sign-in down with it.
+    - host: {{ .Values.ingress.ingestHost | quote }}
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "orchestr8.fullname" . }}-api
+                port: { number: 4319 }
+    {{- end }}
+{{- end }}

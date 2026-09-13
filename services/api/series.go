@@ -41,6 +41,7 @@ FROM orchestr8.otel_metrics_histogram
 WHERE %s AND MetricName = 'vllm:time_to_first_token_seconds'
   AND TimeUnix >= toDateTime(%d) AND TimeUnix <= toDateTime(%d)
   AND Attributes['model_name'] = %s
+  %s
 GROUP BY t ORDER BY t`
 
 // handleSeries serves GET /v1/series?metric=&subject=&from=&to=
@@ -51,6 +52,9 @@ func handleSeries(w http.ResponseWriter, r *http.Request, c *chClient) {
 	}
 	q := r.URL.Query()
 	metric, subject := q.Get("metric"), q.Get("subject")
+	// Optional. Without it a model served by two clusters returns one blended
+	// line, which is drawn under a single cluster's name and is simply wrong.
+	cluster := q.Get("cluster")
 	from, to := q.Get("from"), q.Get("to")
 	if metric == "" || from == "" || to == "" {
 		http.Error(w, "metric, from and to are required", http.StatusBadRequest)
@@ -71,20 +75,27 @@ func handleSeries(w http.ResponseWriter, r *http.Request, c *chClient) {
 		bucket = 5
 	}
 
-	pts, err := querySeries(r.Context(), c, orgFromRequest(r), metric, subject, fromT, toT, bucket)
+	pts, err := querySeries(r.Context(), c, orgFromRequest(r), metric, subject, cluster, fromT, toT, bucket)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, map[string]any{
-		"metric": metric, "subject": subject,
+		"metric": metric, "subject": subject, "cluster": cluster,
 		"from": fromT.UTC().Format(time.RFC3339Nano), "to": toT.UTC().Format(time.RFC3339Nano),
 		"points": pts,
 	})
 }
 
-func querySeries(ctx context.Context, c *chClient, org, metric, subject string, from, to time.Time, bucket int) ([]seriesPoint, error) {
+func querySeries(ctx context.Context, c *chClient, org, metric, subject, cluster string, from, to time.Time, bucket int) ([]seriesPoint, error) {
 	f, t := from.Unix(), to.Unix()
+
+	// Cluster lives on the resource, not the datapoint: it is stamped once per
+	// batch by the agent, not repeated on every sample.
+	clusterFilter := ""
+	if cluster != "" {
+		clusterFilter = "AND ResourceAttributes['orchestr8.cluster.id'] = " + chQuote(cluster)
+	}
 
 	// TTFT is a histogram, so a p95 per bucket has to be interpolated rather
 	// than averaged out of a gauge.
@@ -94,7 +105,7 @@ func querySeries(ctx context.Context, c *chClient, org, metric, subject string, 
 			Bounds  []float64 `json:"bounds"`
 			Buckets []uint64  `json:"buckets"`
 		}
-		if err := c.query(ctx, fmt.Sprintf(qSeriesHistP95, bucket, orgClauseRaw(org), f, t, chQuote(subject)), &rows); err != nil {
+		if err := c.query(ctx, fmt.Sprintf(qSeriesHistP95, bucket, orgClauseRaw(org), f, t, chQuote(subject), clusterFilter), &rows); err != nil {
 			return nil, err
 		}
 		out := make([]seriesPoint, 0, len(rows))
@@ -116,6 +127,7 @@ func querySeries(ctx context.Context, c *chClient, org, metric, subject string, 
 		}
 		filter = fmt.Sprintf("AND Attributes[%s] = %s", chQuote(key), chQuote(subject))
 	}
+	filter += " " + clusterFilter
 	var raw []struct {
 		T int64   `json:"t"`
 		V float64 `json:"v"`

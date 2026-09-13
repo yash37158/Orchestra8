@@ -11,11 +11,16 @@ export function Sparkline({
   threshold,
   unit = "",
   height = 40,
+  // Off for an inline spark in a table cell or a KPI card, where the numbers
+  // are already on the row and a second copy under a 26px line just collides
+  // with itself. On where the chart stands alone and has to be readable.
+  labels = true,
 }: {
   points: { t: string; v: number }[]
   threshold?: number
   unit?: string
   height?: number
+  labels?: boolean
 }) {
   if (points.length < 2) {
     return <p className="text-xs text-muted-foreground">Not enough data in this window to plot.</p>
@@ -38,7 +43,10 @@ export function Sparkline({
 
   return (
     <div className="space-y-1">
-      <svg viewBox={`0 0 ${W} ${height}`} className="h-10 w-full" preserveAspectRatio="none" role="img"
+      {/* The rendered height follows the prop. It used to set only the viewBox
+          while a fixed class pinned the box at 40px, so every caller that asked
+          for a shorter spark silently got the tall one. */}
+      <svg viewBox={`0 0 ${W} ${height}`} style={{ height }} className="w-full" preserveAspectRatio="none" role="img"
            aria-label={`${points.length} points from ${values[0]}${unit} to ${values[values.length - 1]}${unit}`}>
         {threshold !== undefined && y(threshold) >= 0 && y(threshold) <= height && (
           <line x1="0" y1={y(threshold)} x2={W} y2={y(threshold)}
@@ -47,14 +55,14 @@ export function Sparkline({
         <path d={path} fill="none" strokeWidth="1.5" vectorEffect="non-scaling-stroke"
               stroke="currentColor" className={breached ? "text-warn" : "text-chart-1"} />
       </svg>
-      <div className="flex justify-between text-[10px] text-muted-foreground">
+      {labels && <div className="flex justify-between text-[10px] text-muted-foreground">
         <span>{new Date(points[0].t).toLocaleTimeString()}</span>
         <span className="font-mono">
           {values[0].toFixed(0)}{unit} → {values[values.length - 1].toFixed(0)}{unit}
           {threshold !== undefined && <span className="ml-2 text-crit/80">target {threshold}{unit}</span>}
         </span>
         <span>{new Date(points[points.length - 1].t).toLocaleTimeString()}</span>
-      </div>
+      </div>}
     </div>
   )
 }

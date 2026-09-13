@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { ScansResponse, ScanFinding, InferenceResponse, ConfigResponse } from "@orchestr8/contracts"
+import { ScansResponse, ScanFinding, InferenceResponse, ConfigResponse, SeriesResponse, type SeriesPoint } from "@orchestr8/contracts"
 
 const API_URL = process.env.ORCHESTR8_API_URL ?? "http://localhost:8088"
 
@@ -37,3 +37,20 @@ export const getInference = () => get("/v1/inference", InferenceResponse)
 export const getConfig = () => get("/v1/config", ConfigResponse)
 export const getScanFindings = (id: string) =>
   get(`/v1/scans/${encodeURIComponent(id)}`, z.object({ id: z.string(), findings: z.array(ScanFinding).nullable() }))
+
+/**
+ * One metric over a window. `subject` selects a GPU UUID or a model name and
+ * `cluster` narrows it further; omitting both averages across the whole fleet,
+ * which is what the overview KPIs want. Without `cluster`, a model served in
+ * two places returns one blended line — right for a KPI, wrong for a row.
+ *
+ * Failure returns an empty series rather than an error: a missing sparkline
+ * should not take down a page whose numbers are all still correct.
+ */
+export async function getSeries(metric: string, subject: string, cluster = "", hours = 1): Promise<SeriesPoint[]> {
+  const to = new Date()
+  const from = new Date(to.getTime() - hours * 3600_000)
+  const q = new URLSearchParams({ metric, subject, cluster, from: from.toISOString(), to: to.toISOString() })
+  const r = await get(`/v1/series?${q}`, SeriesResponse)
+  return r.ok ? (r.data.points ?? []) : []
+}

@@ -125,17 +125,23 @@ type svcRow struct {
 
 // Queue depth and KV-cache are plain gauges, fetched separately so a missing
 // inference engine degrades one field rather than the whole row.
+// Grouped by cluster AND model. Grouping by model alone averaged a metric
+// across every cluster serving it and then handed that average back as each
+// cluster's own reading — so a saturated KV cache in one cluster was diluted
+// by a healthy one in another, and neither row showed the truth.
 const qServiceGauges = `
 SELECT
+    ResourceAttributes['orchestr8.cluster.id']                        AS clusterId,
     Attributes['model_name']                                          AS model,
     round(avgIf(Value, MetricName = 'vllm:num_requests_waiting'), 0)  AS queueDepth,
     round(avgIf(Value, MetricName = 'vllm:gpu_cache_usage_perc')*100, 2) AS kvCacheUsagePct,
     round(avgIf(Value, MetricName = 'vllm:avg_generation_throughput_toks_per_s'), 1) AS tokensPerSecond
 FROM orchestr8.otel_metrics_gauge
 WHERE %s AND TimeUnix >= now() - INTERVAL 2 MINUTE AND MetricName LIKE 'vllm:%%'
-GROUP BY model`
+GROUP BY clusterId, model`
 
 type svcGaugeRow struct {
+	ClusterID       string  `json:"clusterId"`
 	Model           string  `json:"model"`
 	QueueDepth      float64 `json:"queueDepth"`
 	KvCacheUsagePct float64 `json:"kvCacheUsagePct"`
@@ -213,9 +219,11 @@ func loadDashboardFromCH(ctx context.Context, c *chClient, org string, slos map[
 	if err := c.query(ctx, fmt.Sprintf(qServiceGauges, orgClauseRaw(org)), &sgRows); err != nil {
 		return nil, fmt.Errorf("service gauge query: %w", err)
 	}
+	// Keyed by cluster and model together: a model name is unique within a
+	// cluster, not across the fleet.
 	gauges := map[string]svcGaugeRow{}
 	for _, r := range sgRows {
-		gauges[r.Model] = r
+		gauges[scopeKey(r.ClusterID, r.Model)] = r
 	}
 
 	// Real correlations from the engine. Empty means "nothing detected",
@@ -259,14 +267,16 @@ func loadDashboardFromCH(ctx context.Context, c *chClient, org string, slos map[
 
 	var withinSlo, totalSvc int
 	for _, r := range sRows {
-		g := gauges[r.Model]
+		g := gauges[scopeKey(r.ClusterID, r.Model)]
 		slo := slos[r.Model]
 		if slo == 0 {
 			slo = defaultTtftSloMs
 		}
 		p95 := histQuantile(r.Bounds, r.Buckets, 0.95) * 1000
 		svc := InferenceService{
-			ID: "svc-" + r.Model, ClusterID: r.ClusterID, Model: r.Model, Engine: "vllm",
+			// Cluster in the id: two clusters serving one model are two
+			// services, and a shared id makes them one in every consumer.
+			ID: "svc-" + r.ClusterID + "-" + r.Model, ClusterID: r.ClusterID, Model: r.Model, Engine: "vllm",
 			Replicas:        0,
 			TtftMsP50:       round1(histQuantile(r.Bounds, r.Buckets, 0.50) * 1000),
 			TtftMsP95:       round1(p95),
@@ -284,7 +294,12 @@ func loadDashboardFromCH(ctx context.Context, c *chClient, org string, slos map[
 		}
 		out.Services = append(out.Services, svc)
 	}
-	sort.Slice(out.Services, func(i, j int) bool { return out.Services[i].Model < out.Services[j].Model })
+	sort.Slice(out.Services, func(i, j int) bool {
+		if out.Services[i].Model != out.Services[j].Model {
+			return out.Services[i].Model < out.Services[j].Model
+		}
+		return out.Services[i].ClusterID < out.Services[j].ClusterID
+	})
 
 	var gpuUtil float64
 	if len(gRows) > 0 {
@@ -356,7 +371,6 @@ func countOpen(cs []Correlation) int {
 	}
 	return n
 }
-
 
 // clusterStatus reports what the telemetry says, not a constant. A cluster with
 // a throttling GPU is degraded — calling it healthy next to a tile that says

@@ -351,6 +351,28 @@ export const DashboardResponse = z.object({
   correlations: z.array(Correlation),
 })
 
+/**
+ * One metric over a window, already bucketed by the API.
+ *
+ * Deliberately not tied to a subject type: the same shape carries a fleet-wide
+ * average, one GPU's temperature, or one model's interpolated p95. The caller
+ * knows what it asked for; the wire format does not need to.
+ */
+export const SeriesPoint = z.object({
+  t: Iso,
+  v: z.number(),
+})
+
+export const SeriesResponse = z.object({
+  metric: z.string(),
+  subject: z.string(),
+  from: Iso,
+  to: Iso,
+  // Null when the window held no samples — an empty chart and a broken query
+  // must not look the same to the caller.
+  points: z.array(SeriesPoint).nullable(),
+})
+
 export type Cluster = z.infer<typeof Cluster>
 export type TopologyLink = z.infer<typeof TopologyLink>
 export type Topology = z.infer<typeof Topology>
@@ -371,5 +393,7 @@ export type ModelEconomics = z.infer<typeof ModelEconomics>
 export type Recommendation = z.infer<typeof Recommendation>
 export type InferenceResponse = z.infer<typeof InferenceResponse>
 export type ConfigResponse = z.infer<typeof ConfigResponse>
+export type SeriesPoint = z.infer<typeof SeriesPoint>
+export type SeriesResponse = z.infer<typeof SeriesResponse>
 export type OverviewResponse = z.infer<typeof OverviewResponse>
 export type DashboardResponse = z.infer<typeof DashboardResponse>

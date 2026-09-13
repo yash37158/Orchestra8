@@ -1,8 +1,14 @@
 import Link from "next/link"
-import { AlertTriangle, ChevronRight, Cloud, Coins, Cpu, Gauge } from "lucide-react"
-import type { Correlation, DashboardResponse, InferenceResponse } from "@orchestr8/contracts"
+import { AlertTriangle, ChevronRight, Cloud, Coins, Cpu, Gauge, ShieldCheck } from "lucide-react"
+import type {
+  ClusterDetail, Correlation, DashboardResponse, InferenceResponse, SeriesPoint,
+} from "@orchestr8/contracts"
 
 import { ActivityFeed } from "@/components/activity-feed"
+import { FleetCost } from "@/components/fleet-cost"
+import { GpuFleet } from "@/components/gpu-fleet"
+import { InferenceServices } from "@/components/inference-services"
+import { Sparkline } from "@/components/sparkline"
 import { TelemetryStatus } from "@/components/telemetry-status"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
@@ -17,19 +23,43 @@ const RAIL: Record<State, string> = {
 }
 const DOT: Record<State, string> = { ok: "bg-ok", warn: "bg-warn", crit: "bg-crit" }
 
-function Kpi({ label, icon: Icon, value, sub, state = "ok" }: {
-  label: string; icon: typeof Cloud; value: string; sub: string; state?: State
+/**
+ * A single headline number.
+ *
+ * `trend` is optional because not every metric has one worth drawing: fleet
+ * cost is inventory times a rate card, so its line is flat until somebody buys
+ * a GPU. Where a trend does exist it carries the thing the number alone cannot
+ * — 88% utilisation reads the same whether it has been steady all day or
+ * climbed twenty points in an hour.
+ */
+function Kpi({ label, icon: Icon, value, sub, state = "ok", trend }: {
+  label: string; icon: typeof Cloud; value: string; sub: string; state?: State; trend?: SeriesPoint[]
 }) {
+  const delta = trend && trend.length > 1 ? trend[trend.length - 1].v - trend[0].v : null
   return (
     <div className={`rounded-md border bg-card px-4 py-3.5 ${RAIL[state]}`}>
       <div className="mb-2.5 flex items-center justify-between">
         <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{label}</span>
         <Icon className="h-3.5 w-3.5 text-muted-foreground/60" />
       </div>
-      <div className="tnum text-[26px] font-semibold leading-none tracking-tight">{value}</div>
+      <div className="flex items-end justify-between gap-3">
+        <div className="tnum text-[26px] font-semibold leading-none tracking-tight">{value}</div>
+        {trend && trend.length > 1 && (
+          <div className="w-[84px] shrink-0 opacity-70">
+            <Sparkline points={trend} height={26} labels={false} />
+          </div>
+        )}
+      </div>
       <div className="mt-2 flex items-center gap-1.5">
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT[state]}`} />
         <span className="text-xs text-muted-foreground">{sub}</span>
+        {/* Rounded to the nearest whole unit: sub-decimal drift on a one-hour
+            window is noise, and rendering it invites reading meaning into it. */}
+        {delta !== null && Math.abs(delta) >= 1 && (
+          <span className="tnum ml-auto text-[11px] text-muted-foreground/80">
+            {delta > 0 ? "+" : ""}{Math.round(delta)} / 1h
+          </span>
+        )}
       </div>
     </div>
   )
@@ -71,68 +101,27 @@ function CorrelationCard({ c }: { c: Correlation }) {
   )
 }
 
-/**
- * Per-model SLO and spend.
- *
- * This replaces a force-directed topology map that, with two clusters and no
- * measured inter-cluster links, drew two unconnected circles across half the
- * viewport. Topology needs edges to be worth the space; it lives on /clusters
- * where there is room for it. What belongs above the fold is the thing being
- * defended — the SLO — and what it costs.
- */
-function Models({ inference }: { inference: InferenceResponse | null }) {
-  if (!inference || inference.models.length === 0) {
-    return (
-      <p className="px-4 py-5 text-sm text-muted-foreground">
-        No inference services reporting. A serving pod needs the
-        <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">orchestr8.io/scrape</code>
-        annotation to be collected.
-      </p>
-    )
-  }
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-[13px]">
-        <thead>
-          <tr className="border-b text-left text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
-            {["Model", "Cluster", "p95 / target", "GPUs", "Cost/hr"].map((h) => (
-              <th key={h} className="whitespace-nowrap px-4 py-2 font-medium">{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {inference.models.map((m) => {
-            const pct = m.ttftSloMs > 0 ? Math.min(100, (m.ttftMsP95 / m.ttftSloMs) * 100) : 0
-            return (
-              <tr key={m.clusterId + m.model} className="border-b border-border/50 last:border-0">
-                <td className="whitespace-nowrap px-4 py-2 font-mono text-xs">{m.model}</td>
-                <td className="whitespace-nowrap px-4 py-2 font-mono text-xs text-muted-foreground">{m.clusterId}</td>
-                {/* Observed and target in one cell: a latency figure means
-                    nothing without the budget it is spending. The bar carries
-                    the ratio, the numbers carry the magnitude. */}
-                <td className="whitespace-nowrap px-4 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className={`tnum font-medium ${m.withinSlo ? "" : "text-crit"}`}>{m.ttftMsP95}</span>
-                    <span className="tnum text-xs text-muted-foreground">/ {m.ttftSloMs}ms</span>
-                    <div className="h-1.5 w-12 shrink-0 overflow-hidden rounded-full bg-muted">
-                      <div className={`h-full rounded-full ${m.withinSlo ? "bg-ok" : "bg-crit"}`} style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                </td>
-                <td className="tnum px-4 py-2 text-muted-foreground">{m.gpuCount}</td>
-                <td className="tnum whitespace-nowrap px-4 py-2 text-muted-foreground">{usd2.format(m.costPerHourUsd)}</td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-export function Dashboard({ data, inference }: { data: DashboardResponse; inference: InferenceResponse | null }) {
+export function Dashboard({ data, inference, clusters, utilTrend, sloTrends }: {
+  data: DashboardResponse
+  inference: InferenceResponse | null
+  clusters: ClusterDetail[]
+  utilTrend: SeriesPoint[]
+  sloTrends: Record<string, SeriesPoint[]>
+}) {
   const { overview, activity, correlations } = data
-  const sloBreaching = overview.inferenceSloAttainmentPct < 100
+
+  // SLO attainment is derived from the very models rendered below, not from
+  // overview.inferenceSloAttainmentPct. The two are computed over different
+  // windows — the overview smooths over five minutes, /v1/inference uses the
+  // engine's three-minute detection window — so on a fleet sitting near its
+  // target the headline read 100% while the table underneath showed a row in
+  // red. One fact, one source.
+  const models = inference?.models ?? []
+  const breaching = models.filter((m) => !m.withinSlo)
+  const sloPct = models.length > 0
+    ? Math.round(((models.length - breaching.length) / models.length) * 100)
+    : 100
+  const sloBreaching = breaching.length > 0
   const throttled = data.gpus.filter((g) => g.throttled).length
   const degraded = data.topology.clusters.filter((c) => c.status !== "healthy").length
 
@@ -162,12 +151,15 @@ export function Dashboard({ data, inference }: { data: DashboardResponse; infere
             value={`${overview.gpuUtilizationPct}%`}
             sub={throttled > 0 ? `${throttled} GPU${throttled > 1 ? "s" : ""} throttling` : "none throttling"}
             state={throttled > 0 ? "warn" : "ok"}
+            trend={utilTrend}
           />
           <Kpi
             label="Inference SLO"
             icon={Gauge}
-            value={`${overview.inferenceSloAttainmentPct}%`}
-            sub={sloBreaching ? "p95 TTFT over target" : "all models within target"}
+            value={`${sloPct}%`}
+            sub={sloBreaching
+              ? `${breaching.length} of ${models.length} over p95 target`
+              : `all ${models.length} models within target`}
             state={sloBreaching ? "crit" : "ok"}
           />
           <Kpi
@@ -178,38 +170,79 @@ export function Dashboard({ data, inference }: { data: DashboardResponse; infere
           />
         </div>
 
-        {correlations.length > 0 && (
-          <section className="space-y-2.5">
-            <div className="flex items-baseline justify-between">
-              <h2 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-                <AlertTriangle className="h-4 w-4 text-warn" />
-                Correlated incidents
-              </h2>
-              <span className="text-xs text-muted-foreground">infrastructure cause linked to inference symptom</span>
-            </div>
-            {correlations.map((c) => <CorrelationCard key={c.id} c={c} />)}
-          </section>
-        )}
+        <section className="space-y-2.5">
+          <div className="flex items-baseline justify-between">
+            <h2 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+              {correlations.length > 0
+                ? <AlertTriangle className="h-4 w-4 text-warn" />
+                : <ShieldCheck className="h-4 w-4 text-ok" />}
+              Correlated incidents
+            </h2>
+            <span className="text-xs text-muted-foreground">infrastructure cause linked to inference symptom</span>
+          </div>
+          {correlations.length > 0
+            ? correlations.map((c) => <CorrelationCard key={c.id} c={c} />)
+            : (
+              /* An empty section used to vanish, which left a hole where the
+                 product's whole claim should be and said nothing about whether
+                 the engine had even run. Silence is a result; it should look
+                 like one. */
+              <div className="rounded-md border bg-card px-4 py-3.5">
+                {/* Says only what was measured. The first version asserted
+                    "every model is inside its SLO", which went stale the moment
+                    a model breached without the engine finding a cause for it —
+                    the panel then contradicted the table directly below. */}
+                <p className="text-[13.5px] text-foreground/90">
+                  {sloBreaching
+                    ? `No cause identified yet for ${breaching.length} breaching model${breaching.length === 1 ? "" : "s"}.`
+                    : "No correlated incidents. Every model is inside its SLO."}
+                </p>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Watching <span className="tnum">{models.length}</span> service
+                  {models.length === 1 ? "" : "s"} across{" "}
+                  <span className="tnum">{data.gpus.length}</span> GPU{data.gpus.length === 1 ? "" : "s"}.
+                  The engine links an infrastructure cause to an inference symptom only when it can
+                  evidence both, so nothing here means nothing was provable — not that nothing was checked.
+                </p>
+              </div>
+            )}
+        </section>
+
+        <section className="rounded-md border bg-card">
+          <div className="flex items-baseline justify-between border-b px-4 py-3">
+            <h2 className="text-sm font-semibold tracking-tight">Inference services</h2>
+            <Link href="/ai" className="text-xs text-primary hover:underline">economics</Link>
+          </div>
+          <InferenceServices inference={inference} trends={sloTrends} />
+        </section>
 
         <div className="grid gap-3 lg:grid-cols-5">
           <section className="rounded-md border bg-card lg:col-span-3">
             <div className="flex items-baseline justify-between border-b px-4 py-3">
-              <h2 className="text-sm font-semibold tracking-tight">Models</h2>
-              <Link href="/ai" className="text-xs text-primary hover:underline">economics</Link>
+              <h2 className="text-sm font-semibold tracking-tight">GPU fleet</h2>
+              <Link href="/clusters" className="text-xs text-primary hover:underline">clusters</Link>
             </div>
-            <Models inference={inference} />
+            <GpuFleet gpus={data.gpus} />
           </section>
 
           <section className="rounded-md border bg-card lg:col-span-2">
             <div className="flex items-baseline justify-between border-b px-4 py-3">
-              <h2 className="text-sm font-semibold tracking-tight">Activity</h2>
-              <Link href="/audit" className="text-xs text-primary hover:underline">ledger</Link>
+              <h2 className="text-sm font-semibold tracking-tight">Spend by GPU model</h2>
+              <Link href="/ai" className="text-xs text-primary hover:underline">recommendations</Link>
             </div>
-            <div className="px-4 py-3.5">
-              <ActivityFeed events={activity} />
-            </div>
+            <FleetCost clusters={clusters} />
           </section>
         </div>
+
+        <section className="rounded-md border bg-card">
+          <div className="flex items-baseline justify-between border-b px-4 py-3">
+            <h2 className="text-sm font-semibold tracking-tight">Activity</h2>
+            <Link href="/audit" className="text-xs text-primary hover:underline">ledger</Link>
+          </div>
+          <div className="px-4 py-3.5">
+            <ActivityFeed events={activity} />
+          </div>
+        </section>
       </div>
     </ScrollArea>
   )

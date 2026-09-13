@@ -3,7 +3,8 @@ import { AlertTriangle } from "lucide-react"
 import { MainLayout } from "@/components/main-layout"
 import { Dashboard } from "@/components/dashboard"
 import { getDashboard } from "@/lib/api/dashboard"
-import { getInference } from "@/lib/api/pages"
+import { getClusters } from "@/lib/api/clusters"
+import { getInference, getSeries } from "@/lib/api/pages"
 
 // Server component: the fetch happens on the server, the contract is validated
 // there, and components receive data already known to be the right shape.
@@ -11,13 +12,31 @@ import { getInference } from "@/lib/api/pages"
 export const dynamic = "force-dynamic"
 
 export default async function DashboardPage() {
-  // Fetched together: two independent reads, one round of latency.
-  const [result, inference] = await Promise.all([getDashboard(), getInference()])
+  // Three independent reads, one round of latency.
+  const [result, inference, clusters] = await Promise.all([getDashboard(), getInference(), getClusters()])
+
+  // A second round, because the per-model trends cannot be requested until the
+  // models are known. Worth the extra hop: a p95 without its own hour of
+  // history reads as healthy right up to the moment it isn't.
+  const models = inference.ok ? inference.data.models : []
+  const [utilTrend, ...modelTrends] = await Promise.all([
+    getSeries("DCGM_FI_DEV_GPU_UTIL", ""),
+    ...models.map((m) => getSeries("vllm:time_to_first_token_seconds", m.model, m.clusterId)),
+  ])
+  const sloTrends = Object.fromEntries(
+    models.map((m, i) => [`${m.clusterId}/${m.model}`, modelTrends[i] ?? []]),
+  )
 
   return (
     <MainLayout>
       {result.ok ? (
-        <Dashboard data={result.data} inference={inference.ok ? inference.data : null} />
+        <Dashboard
+          data={result.data}
+          inference={inference.ok ? inference.data : null}
+          clusters={clusters.ok ? clusters.data.clusters : []}
+          utilTrend={utilTrend}
+          sloTrends={sloTrends}
+        />
       ) : (
         <div className="container py-16">
           <div className="mx-auto max-w-lg rounded-lg border border-red-500/30 bg-red-500/5 p-6">

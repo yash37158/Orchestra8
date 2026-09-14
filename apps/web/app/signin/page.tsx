@@ -4,6 +4,7 @@ import { redirect } from "next/navigation"
 
 import { auth, signIn } from "@/auth"
 import { BootstrapForm, PasswordForm } from "@/components/signin-form"
+import { allowSignup } from "@/lib/auth/org"
 import { needsBootstrap } from "@/lib/auth/password"
 
 export const dynamic = "force-dynamic"
@@ -15,7 +16,7 @@ const pool = new Pool({
 
 const ERRORS: Record<string, string> = {
   NotInvited:
-    "That account is not a member of any organisation. Ask an owner to invite you — the first account created owns this deployment, and everyone after joins by invitation.",
+    "This deployment is invite-only. Ask an owner to add you — they can do it from Settings once invitations ship.",
   SessionEnded:
     "Your session ended — signed out elsewhere, expired, or your access was changed. Sign in again.",
   OAuthAccountNotLinked:
@@ -40,6 +41,11 @@ export default async function SignInPage({
   const oauth = [
     { id: "google", label: "Continue with Google", on: !!process.env.AUTH_GOOGLE_ID },
     { id: "github", label: "Continue with GitHub", on: !!process.env.AUTH_GITHUB_ID },
+    {
+      id: "oidc",
+      label: `Continue with ${process.env.AUTH_OIDC_NAME ?? "single sign-on"}`,
+      on: !!process.env.AUTH_OIDC_ISSUER,
+    },
   ].filter((p) => p.on)
 
   let bootstrap = false
@@ -57,9 +63,9 @@ export default async function SignInPage({
         <div className="mb-7">
           <h1 className="text-lg font-semibold tracking-tight">Orchestr8</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {bootstrap
+            {bootstrap && oauth.length === 0
               ? "Nobody owns this deployment yet. Create the first account."
-              : "GPU and inference observability. Sign in to continue."}
+              : "GPU and inference observability."}
           </p>
         </div>
 
@@ -69,7 +75,41 @@ export default async function SignInPage({
           </div>
         )}
 
-        {bootstrap ? (
+        {/* Single sign-on first when it is available. It is one click, it
+            carries the identity the audit ledger will record, and it is what
+            most people arriving at a hosted deployment expect. Email and
+            password sits underneath as the path that needs nothing external —
+            which a self-hosted install may be relying on entirely. */}
+        {oauth.length > 0 && (
+          <div className="space-y-2.5">
+            {oauth.map((p) => (
+              <form
+                key={p.id}
+                action={async () => {
+                  "use server"
+                  await signIn(p.id, { redirectTo: callbackUrl ?? "/dashboard" })
+                }}
+              >
+                <button
+                  type="submit"
+                  className="flex w-full items-center justify-center gap-2.5 rounded-md border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:border-foreground/20"
+                >
+                  {p.label}
+                </button>
+              </form>
+            ))}
+            {/* Only true when signup is open. Promising a newcomer an account
+                on a deployment that will refuse them is worse than saying
+                nothing — they follow the instruction and hit a wall. */}
+            <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
+              {allowSignup()
+                ? "New here? Signing in creates your account and walks you through registering an organisation — once."
+                : "This deployment is invite-only. Sign in with an account an owner has already added."}
+            </p>
+          </div>
+        )}
+
+        {bootstrap && oauth.length === 0 ? (
           <>
             <BootstrapForm />
             <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
@@ -82,36 +122,14 @@ export default async function SignInPage({
           </>
         ) : (
           <>
-            <PasswordForm />
-
             {oauth.length > 0 && (
-              <>
-                <div className="my-5 flex items-center gap-3">
-                  <div className="h-px flex-1 bg-border" />
-                  <span className="text-[11px] uppercase tracking-wider text-muted-foreground">or</span>
-                  <div className="h-px flex-1 bg-border" />
-                </div>
-                <div className="space-y-2.5">
-                  {oauth.map((p) => (
-                    <form
-                      key={p.id}
-                      action={async () => {
-                        "use server"
-                        await signIn(p.id, { redirectTo: callbackUrl ?? "/dashboard" })
-                      }}
-                    >
-                      <button
-                        type="submit"
-                        className="w-full rounded-md border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:border-foreground/20"
-                      >
-                        {p.label}
-                      </button>
-                    </form>
-                  ))}
-                </div>
-              </>
+              <div className="my-5 flex items-center gap-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">or</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
             )}
-
+            <PasswordForm />
             <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
               {oauth.length === 0 && "No single sign-on provider is configured on this deployment. "}
               Telemetry stays scoped to your organisation. Collectors authenticate separately with an

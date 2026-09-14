@@ -46,7 +46,14 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   // need clearing — signing in again overwrites it, and until then every
   // protected page lands back here and redirects to the same place.
   if (res.status === 401) {
-    redirect("/signin?error=SessionEnded")
+    // Two different people get a 401 here, and sending both to sign in is
+    // wrong for one of them. Somebody who just authenticated but has not
+    // registered an organisation yet has a perfectly good session — the API
+    // refuses them because there is no organisation to scope the read to, and
+    // bouncing them to a login page they have already passed is a loop.
+    const { auth } = await import("@/auth")
+    const session = await auth()
+    redirect(session?.user && !session.user.org ? "/welcome" : "/signin?error=SessionEnded")
   }
   return res
 }

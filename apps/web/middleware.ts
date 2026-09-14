@@ -13,6 +13,9 @@ import type { NextRequest } from "next/server"
  * Checking cookie presence rather than validity keeps this edge-compatible —
  * validity is the API's job, and it does not take our word for it.
  */
+// /welcome is reachable by anyone signed in, including someone who does not
+// belong to an organisation yet — it is where they go to create one, so
+// gating it behind having one would be a loop.
 const PUBLIC = ["/signin", "/landing", "/api/auth"]
 
 export function middleware(req: NextRequest) {

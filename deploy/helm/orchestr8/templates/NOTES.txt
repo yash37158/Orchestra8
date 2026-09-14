@@ -12,7 +12,13 @@ Orchestr8 {{ .Chart.AppVersion }} is installing into {{ .Release.Namespace }}.
 {{- if not (or .Values.auth.google.clientId .Values.auth.github.clientId .Values.auth.existingSecret) }}
 
   Single sign-on is not configured, so email and password is the only way in.
-  To add Google or GitHub, register an app with this callback:
+  For Okta, Entra, Keycloak or any other OpenID Connect provider:
+
+      helm upgrade {{ .Release.Name }} ... \
+        --set auth.oidc.issuer=https://your-idp/... \
+        --set auth.oidc.clientId=... --set auth.oidc.clientSecret=...
+
+  For Google or GitHub, register an app with this callback:
 
       {{ .Values.web.publicUrl | default "http://localhost:8080" }}/api/auth/callback/google
 

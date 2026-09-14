@@ -86,6 +86,19 @@ auth:
   bootstrapToken: ""
   google: { clientId: "", clientSecret: "" }
   github: { clientId: "", clientSecret: "" }
+  # Any OpenID Connect provider — Okta, Entra, Keycloak, Auth0, Dex. One issuer
+  # URL and a client pair. This is what a self-hosted customer actually has;
+  # "we support Google" is a no to most of them.
+  oidc:
+    issuer: ""
+    clientId: ""
+    clientSecret: ""
+    name: "single sign-on"
+  # Open registration: a new arrival founds their own organisation. Right for a
+  # hosted deployment where every arrival is a prospective customer. Turn it
+  # off for a self-hosted one, where the people who belong are a known list and
+  # an open door lets anyone on the network create accounts.
+  allowSignup: true
   existingSecret: ""      # provide all of the above yourself instead
 
 # ------------------------------------------------------------------- ingress

@@ -4,7 +4,7 @@ import Google from "next-auth/providers/google"
 import PostgresAdapter from "@auth/pg-adapter"
 import { Pool } from "pg"
 
-import { claimOrCreateOrg, membershipOf } from "@/lib/auth/org"
+import { admit, membershipOf } from "@/lib/auth/org"
 
 /**
  * Sign-in.
@@ -20,9 +20,43 @@ const pool = new Pool({
   max: 5,
 })
 
+/**
+ * Any OpenID Connect provider, configured by environment.
+ *
+ * Google and GitHub cover a hosted deployment. They cover nothing at all for
+ * the customers most likely to self-host — a bank runs Entra or Okta or
+ * Keycloak, and "we support Google" is a no. One issuer URL and a client pair
+ * is the whole integration for all of them.
+ */
+const oidc = process.env.AUTH_OIDC_ISSUER
+  ? [{
+      id: "oidc",
+      name: process.env.AUTH_OIDC_NAME ?? "single sign-on",
+      type: "oidc" as const,
+      issuer: process.env.AUTH_OIDC_ISSUER,
+      clientId: process.env.AUTH_OIDC_ID,
+      clientSecret: process.env.AUTH_OIDC_SECRET,
+      // Some providers only return email in the userinfo response, and the
+      // adapter needs one: a user row without an email cannot be invited,
+      // named in the audit ledger, or matched to a second sign-in.
+      profile(profile: Record<string, unknown>) {
+        return {
+          id: String(profile.sub),
+          name: (profile.name ?? profile.preferred_username ?? profile.email) as string,
+          email: profile.email as string,
+          image: (profile.picture as string) ?? null,
+        }
+      },
+    }]
+  : []
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PostgresAdapter(pool),
-  providers: [Google, GitHub],
+  providers: [
+    ...(process.env.AUTH_GOOGLE_ID ? [Google] : []),
+    ...(process.env.AUTH_GITHUB_ID ? [GitHub] : []),
+    ...oidc,
+  ],
 
   // Database sessions, NOT the default JWT.
   //
@@ -36,18 +70,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
   callbacks: {
     /**
-     * Invite-only after the first account.
+     * Who gets through the door.
      *
-     * Without this, anyone who finds the URL and has a Google account joins —
-     * not as a stranger who sees nothing, but as a signed-in user the API will
-     * happily resolve an organisation for. The first person to arrive founds
-     * the organisation and owns it; everyone after needs a membership that
-     * somebody already inside created.
+     * Somebody with no organisation is let in and sent to register one — the
+     * account exists at this point either way, and refusing here would leave
+     * a user row nobody can ever use. The organisation they land in is their
+     * own, and every read is scoped by it, so an unknown arrival sees an empty
+     * product rather than anyone else's fleet.
+     *
+     * With signup closed, they are turned away instead and told why.
      */
     async signIn({ user }) {
       if (!user?.id) return true // first pass, before the adapter has an id
-      const claimed = await claimOrCreateOrg(pool, user.id, user.email ?? null)
-      return claimed ? true : "/signin?error=NotInvited"
+      const verdict = await admit(pool, user.id)
+      return verdict === "refused" ? "/signin?error=NotInvited" : true
     },
 
     async session({ session, user }) {

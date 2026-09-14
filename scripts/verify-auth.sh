@@ -108,6 +108,14 @@ echo
 echo "the browser sends people to sign in"
 check "/dashboard redirects"  307 "$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "$WEB/dashboard")"
 check "/signin is reachable"  200 "$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "$WEB/signin")"
+# The landing page is the front door and must open for everyone, including
+# somebody whose browser is still holding a session that no longer exists.
+# It briefly did not: a cookie-presence check bounced them to the dashboard,
+# which refused them, which sent them to sign in — so the page describing the
+# product was unreachable for exactly the people most likely to have an old
+# cookie lying around.
+check "landing page, no cookie"    200 "$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "$WEB/")"
+check "landing page, stale cookie" 200 "$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 -H 'Cookie: authjs.session-token=long-gone' "$WEB/")"
 
 echo
 printf '  %d passed, %d failed\n' "$pass" "$fail"

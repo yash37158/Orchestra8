@@ -33,14 +33,18 @@ export function middleware(req: NextRequest) {
   const hasSessionCookie =
     req.cookies.has("authjs.session-token") || req.cookies.has("__Secure-authjs.session-token")
 
-  // Somebody already signed in wants the product, not the pitch. Decided here
-  // so the landing page itself stays static and cacheable — this is a cookie
-  // check at the edge, not a session lookup.
-  if (pathname === "/" && hasSessionCookie) {
-    const url = req.nextUrl.clone()
-    url.pathname = "/dashboard"
-    return NextResponse.redirect(url)
-  }
+  // The landing page is always the landing page.
+  //
+  // It used to redirect to the dashboard whenever a session cookie was
+  // present, which reads as helpful and is not: this check can only see that a
+  // cookie EXISTS, not that it still means anything. A cookie left behind by a
+  // session that has since expired, been revoked, or been signed out elsewhere
+  // sent a visitor "/" -> "/dashboard" -> 401 -> "/signin", so the front page
+  // of the product was unreachable for exactly the people most likely to have
+  // an old cookie lying around.
+  //
+  // Somebody already signed in is one click away regardless: the sign-in page
+  // resolves their session for real and forwards them on.
   if (isPublic(pathname)) return NextResponse.next()
 
   if (hasSessionCookie) return NextResponse.next()

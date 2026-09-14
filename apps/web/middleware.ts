@@ -16,15 +16,34 @@ import type { NextRequest } from "next/server"
 // /welcome is reachable by anyone signed in, including someone who does not
 // belong to an organisation yet — it is where they go to create one, so
 // gating it behind having one would be a loop.
-const PUBLIC = ["/signin", "/landing", "/api/auth", "/invite"]
+// "/" is the landing page and has to be reachable by somebody who has never
+// heard of the product. It used to sit behind this check, so every visitor was
+// redirected to a sign-in form before being told what they would be signing
+// into. The page itself sends anyone already signed in on to the dashboard.
+// /landing is kept public so its redirect to / can run; gating it sent old
+// links to a sign-in form instead of the page they were asking for.
+const PUBLIC = ["/signin", "/api/auth", "/invite", "/landing"]
+
+function isPublic(pathname: string) {
+  return pathname === "/" || PUBLIC.some((p) => pathname.startsWith(p))
+}
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
-  if (PUBLIC.some((p) => pathname.startsWith(p))) return NextResponse.next()
-
-  const hasSession =
+  const hasSessionCookie =
     req.cookies.has("authjs.session-token") || req.cookies.has("__Secure-authjs.session-token")
-  if (hasSession) return NextResponse.next()
+
+  // Somebody already signed in wants the product, not the pitch. Decided here
+  // so the landing page itself stays static and cacheable — this is a cookie
+  // check at the edge, not a session lookup.
+  if (pathname === "/" && hasSessionCookie) {
+    const url = req.nextUrl.clone()
+    url.pathname = "/dashboard"
+    return NextResponse.redirect(url)
+  }
+  if (isPublic(pathname)) return NextResponse.next()
+
+  if (hasSessionCookie) return NextResponse.next()
 
   const url = req.nextUrl.clone()
   url.pathname = "/signin"

@@ -20,6 +20,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -59,10 +61,19 @@ func migrate(ctx context.Context, dsn, chURL, pgFile, chFile string) error {
 	return nil
 }
 
-func migratePostgres(ctx context.Context, dsn, file string) error {
-	script, err := os.ReadFile(file)
+// migratePostgres applies every .sql file in a directory, in name order.
+//
+// A directory rather than one named file: the control plane will grow more
+// migrations, and a bootstrap wired to 001 alone would apply the first and
+// silently skip the rest — leaving a schema that looks installed and is
+// missing half its tables. Names sort, so 001 runs before 002.
+func migratePostgres(ctx context.Context, dsn, dir string) error {
+	scripts, err := sqlFilesIn(dir)
 	if err != nil {
 		return err
+	}
+	if len(scripts) == 0 {
+		return fmt.Errorf("no .sql files in %s", dir)
 	}
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -92,13 +103,40 @@ func migratePostgres(ctx context.Context, dsn, file string) error {
 		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(hashtext('orchestr8.migrate'))`)
 	}()
 
-	// Postgres accepts the whole script in one Exec, and the file wraps itself
+	// Postgres accepts a whole script in one Exec, and each file wraps itself
 	// in BEGIN/COMMIT so a failure half way leaves nothing behind.
-	if _, err := conn.ExecContext(ctx, string(script)); err != nil {
-		return err
+	for _, f := range scripts {
+		script, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, string(script)); err != nil {
+			return fmt.Errorf("%s: %w", filepath.Base(f), err)
+		}
+		log.Printf("migrate: control plane applied %s", filepath.Base(f))
 	}
-	log.Printf("migrate: control plane applied from %s", file)
 	return nil
+}
+
+// sqlFilesIn lists the .sql files in a directory, sorted by name.
+//
+// A single file is accepted too, so a deployment that still points
+// ORCHESTR8_PG_SCHEMA at one path keeps working across the upgrade that
+// introduces this.
+func sqlFilesIn(path string) ([]string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return []string{path}, nil
+	}
+	found, err := filepath.Glob(filepath.Join(path, "*.sql"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(found)
+	return found, nil
 }
 
 func migrateClickHouse(ctx context.Context, url, file string) error {

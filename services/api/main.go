@@ -24,7 +24,7 @@ func main() {
 		if err := migrate(ctx,
 			env("ORCHESTR8_CONTROL_DSN", "postgres://localhost:5432/orchestr8?sslmode=disable"),
 			env("ORCHESTR8_CLICKHOUSE_URL", "http://127.0.0.1:8123/?database=orchestr8"),
-			env("ORCHESTR8_PG_SCHEMA", "/migrations/001_control_plane.sql"),
+			env("ORCHESTR8_PG_SCHEMA", "/migrations"),
 			env("ORCHESTR8_CH_SCHEMA", "/schema.sql"),
 		); err != nil {
 			log.Fatalf("migrate: %v", err)
@@ -93,6 +93,15 @@ func main() {
 	mux.HandleFunc("/v1/onboarding/status", func(w http.ResponseWriter, r *http.Request) { handleOnboardingStatus(w, r, ch, ctrl, rejects) })
 	mux.HandleFunc("/v1/slos", func(w http.ResponseWriter, r *http.Request) { handleSLOUpsert(w, r, slos, aud) })
 
+	appURL := env("ORCHESTR8_APP_URL", "http://localhost:3000")
+	mux.HandleFunc("/v1/team", func(w http.ResponseWriter, r *http.Request) { handleTeam(w, r, ctrl) })
+	mux.HandleFunc("/v1/invitations", func(w http.ResponseWriter, r *http.Request) {
+		handleInvitations(w, r, ctrl, aud, appURL)
+	})
+	mux.HandleFunc("/v1/invitations/", func(w http.ResponseWriter, r *http.Request) {
+		handleInvitations(w, r, ctrl, aud, appURL)
+	})
+
 	mux.HandleFunc("/v1/deployments", func(w http.ResponseWriter, r *http.Request) { handleDeployments(w, r, dep) })
 	mux.HandleFunc("/v1/deployments/preflight", func(w http.ResponseWriter, r *http.Request) { handlePreflight(w, r, dep) })
 	mux.HandleFunc("/v1/scans", func(w http.ResponseWriter, r *http.Request) { handleScans(w, r, scn) })
@@ -159,6 +168,14 @@ func main() {
 	root.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
+	})
+	// Outside the session check on purpose. Somebody accepting an invitation
+	// has no account in this organisation yet — that is what they are here to
+	// get. The token is the credential: single-use, expiring, and bound to one
+	// email address, all enforced in the accept transaction.
+	root.HandleFunc("/v1/invite/", func(w http.ResponseWriter, r *http.Request) { handleInvitePreview(w, r, ctrl) })
+	root.HandleFunc("/v1/invite-accept", func(w http.ResponseWriter, r *http.Request) {
+		handleInviteAccept(w, r, ctrl, aud)
 	})
 	root.Handle("/", authed)
 

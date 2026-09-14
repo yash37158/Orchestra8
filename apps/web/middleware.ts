@@ -16,7 +16,7 @@ import type { NextRequest } from "next/server"
 // /welcome is reachable by anyone signed in, including someone who does not
 // belong to an organisation yet — it is where they go to create one, so
 // gating it behind having one would be a loop.
-const PUBLIC = ["/signin", "/landing", "/api/auth"]
+const PUBLIC = ["/signin", "/landing", "/api/auth", "/invite"]
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl

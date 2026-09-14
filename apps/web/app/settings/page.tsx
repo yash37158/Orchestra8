@@ -4,6 +4,8 @@ import { MainLayout } from "@/components/main-layout"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Panel, NotWired, ErrorState } from "@/components/panel"
 import { getConfig } from "@/lib/api/pages"
+import { getTeam } from "@/lib/api/team"
+import { TeamPanel } from "@/components/team-panel"
 
 export const dynamic = "force-dynamic"
 
@@ -25,7 +27,8 @@ function Row({ k, v, mono }: { k: string; v: React.ReactNode; mono?: boolean }) 
 }
 
 export default async function SettingsPage() {
-  const result = await getConfig()
+  // Two independent reads, one round of latency.
+  const [result, team] = await Promise.all([getConfig(), getTeam()])
 
   return (
     <MainLayout>
@@ -37,6 +40,12 @@ export default async function SettingsPage() {
                 as reviewable commits, not through a form with no audit trail. */}
             <span className="text-xs text-muted-foreground">configuration lives in <code>config/</code> in the repo</span>
           </div>
+
+          {/* Team first: on this page it is the only thing anybody edits.
+              Everything below it is config that lives in the repo. */}
+          {team.ok
+            ? <TeamPanel team={team.data} />
+            : <ErrorState title="Team unavailable" error={team.error} />}
 
           {!result.ok && <ErrorState title="Configuration unavailable" error={result.error} />}
 

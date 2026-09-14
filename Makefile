@@ -17,7 +17,7 @@ PLATFORM_NS ?= orchestr8-platform
 LOGS    := .localdev/logs
 
 .PHONY: up down status logs store schema devkit collector api web \
-        check contract test fault surge healthy scenarios scan audit hook alerts verify-engine verify-ingest verify-auth sso sso-stop images deploy undeploy control-plane tenancy clean-store
+        check contract test fault surge healthy scenarios scan audit hook alerts verify-engine verify-ingest verify-auth verify-invites sso sso-stop images deploy undeploy control-plane tenancy clean-store
 
 # ---------------------------------------------------------------- one command
 # The individual targets below run in the FOREGROUND, which is what you want
@@ -171,6 +171,9 @@ sso:                         ## start a local OpenID Connect provider so SSO can
 
 sso-stop:                    ## stop the local OpenID Connect provider
 	@docker rm -f orchestr8-dex >/dev/null 2>&1 && echo "  stopped" || echo "  not running"
+
+verify-invites:              ## prove invitations: who may issue one, and everything accept refuses
+	@bash scripts/verify-invites.sh
 
 verify-auth:                 ## prove sign-in: no credential reaches no data, and revocation is immediate
 	@bash scripts/verify-auth.sh

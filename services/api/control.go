@@ -197,6 +197,26 @@ SELECT u.id::text, u.email, o.slug, m.role
 	return id, nil
 }
 
+// lookupSessionUser resolves a session to the person behind it, WITHOUT
+// requiring them to belong to an organisation.
+//
+// lookupSession deliberately refuses someone with no membership, because every
+// other route needs a tenant to scope to. Accepting an invitation is the one
+// place that cannot: not belonging yet is the whole reason they are here.
+func (c *control) lookupSessionUser(ctx context.Context, token string) (userID, email string, err error) {
+	if c.db == nil {
+		return "", "", errors.New("control plane not configured")
+	}
+	err = c.db.QueryRowContext(ctx, `
+SELECT u.id::text, u.email
+  FROM sessions s JOIN users u ON u.id = s."userId"
+ WHERE s."sessionToken" = $1 AND s.expires > now()`, token).Scan(&userID, &email)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", errNoSession
+	}
+	return userID, email, err
+}
+
 // newToken mints a credential. 24 bytes of crypto/rand: the token is the only
 // thing standing between a stranger and a tenant's data, so it is not derived
 // from anything guessable.

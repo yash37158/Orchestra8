@@ -201,8 +201,13 @@ export function Dashboard({ data, inference, clusters, utilTrend, sloTrends }: {
                   Watching <span className="tnum">{models.length}</span> service
                   {models.length === 1 ? "" : "s"} across{" "}
                   <span className="tnum">{data.gpus.length}</span> GPU{data.gpus.length === 1 ? "" : "s"}.
+                  {/* This used to end "not that nothing was checked", which was
+                      false for every tenant but the first: the engine watched a
+                      single organisation taken from an environment variable, so
+                      a second customer was reassured by a panel that had never
+                      examined their fleet. It sweeps every tenant now. */}
                   The engine links an infrastructure cause to an inference symptom only when it can
-                  evidence both, so nothing here means nothing was provable — not that nothing was checked.
+                  evidence both, so an empty list means no cause was provable — not that nothing is wrong.
                 </p>
               </div>
             )}

@@ -23,8 +23,17 @@ import (
 // before scaling the API horizontally — the chain would detect the fork rather
 // than silently accepting it, which is the right failure mode.
 
+// One audit log for every tenant, not one per tenant.
+//
+// The organisation comes from the context on each call, so a single mutex
+// serialises the read-then-write of Seq across all of them. Per-tenant
+// instances would each hold their own lock and could fork the chain when a
+// handler and the detection engine wrote for the same org at once.
+//
+// ponytail: that mutex serialises audit writes globally. They happen on
+// deploys, scans and pages — rare enough that contention is not a concern, and
+// the fix if it ever is would be a ClickHouse sequence rather than finer locks.
 type auditLog struct {
-	org string
 	ch *chClient
 	mu sync.Mutex
 }
@@ -67,6 +76,7 @@ func hashEntry(prevHash string, seq uint64, at, actor, action, subject, cluster,
 
 // Append writes one entry. Never updates, never deletes.
 func (a *auditLog) Append(ctx context.Context, actor, action, subject, cluster, outcome string, detail map[string]any) (*AuditEntry, error) {
+	org := orgFromContext(ctx)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -75,7 +85,7 @@ func (a *auditLog) Append(ctx context.Context, actor, action, subject, cluster, 
 		Hash string `json:"hash"`
 	}
 	if err := a.ch.query(ctx,
-		`SELECT Seq AS seq, Hash AS hash FROM orchestr8.audit_log WHERE `+orgClause(a.org)+` ORDER BY Seq DESC LIMIT 1`, &head); err != nil {
+		`SELECT Seq AS seq, Hash AS hash FROM orchestr8.audit_log WHERE `+orgClause(org)+` ORDER BY Seq DESC LIMIT 1`, &head); err != nil {
 		return nil, fmt.Errorf("audit head: %w", err)
 	}
 	var prevSeq uint64
@@ -100,11 +110,11 @@ func (a *auditLog) Append(ctx context.Context, actor, action, subject, cluster, 
 		Outcome: outcome, Detail: detail, PrevHash: prevHash,
 	}
 	// OrgId is inside the hash so an entry cannot be moved between tenants.
-	e.Hash = hashEntry(prevHash, e.Seq, atCH, a.org+"|"+actor, action, subject, cluster, outcome, string(detailJSON))
+	e.Hash = hashEntry(prevHash, e.Seq, atCH, org+"|"+actor, action, subject, cluster, outcome, string(detailJSON))
 
 	row := auditRow{
-		OrgId: a.org,
-		Seq: e.Seq, At: atCH, Actor: actor, Action: action, Subject: subject,
+		OrgId: org,
+		Seq:   e.Seq, At: atCH, Actor: actor, Action: action, Subject: subject,
 		ClusterId: cluster, Outcome: outcome, Detail: string(detailJSON),
 		PrevHash: prevHash, Hash: e.Hash,
 	}
@@ -154,10 +164,11 @@ type AuditVerification struct {
 // Verify recomputes the whole chain. This is the feature that makes the log
 // worth having: without it "append-only" is a promise rather than a property.
 func (a *auditLog) Verify(ctx context.Context) (*AuditVerification, error) {
+	org := orgFromContext(ctx)
 	var rows []auditRow
 	q := `SELECT Seq, toString(At) AS At, Actor, Action, Subject, ClusterId,
 	       Outcome, Detail, PrevHash, Hash
-	FROM orchestr8.audit_log WHERE `+orgClause(a.org)+` ORDER BY Seq ASC`
+	FROM orchestr8.audit_log WHERE ` + orgClause(org) + ` ORDER BY Seq ASC`
 	if err := a.ch.query(ctx, q, &rows); err != nil {
 		return nil, err
 	}

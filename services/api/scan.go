@@ -21,7 +21,6 @@ import (
 // against what is already deployed without rebuilding or re-pulling anything.
 
 type scanner struct {
-	org    string
 	ch     *chClient
 	audit  *auditLog
 	bin    string // trivy
@@ -196,7 +195,7 @@ func firstLine(s string) string {
 func (s *scanner) persist(ctx context.Context, r *ScanResult, sbom string) error {
 	at := time.Now().UTC().Format("2006-01-02 15:04:05.000")
 	head, err := json.Marshal(map[string]any{
-		"OrgId": s.org, "Id": r.ID, "At": at, "Target": r.Target, "TargetKind": r.TargetKind,
+		"OrgId": orgFromContext(ctx), "Id": r.ID, "At": at, "Target": r.Target, "TargetKind": r.TargetKind,
 		"Scanner": r.Scanner, "DurationMs": r.DurationMs,
 		"Critical": r.Critical, "High": r.High, "Medium": r.Medium, "Low": r.Low,
 		"Fixable": r.Fixable, "SbomJson": sbom, "Outcome": r.Outcome,
@@ -214,7 +213,7 @@ func (s *scanner) persist(ctx context.Context, r *ScanResult, sbom string) error
 	b.WriteString("INSERT INTO orchestr8.scan_findings FORMAT JSONEachRow\n")
 	for _, f := range r.Findings {
 		line, _ := json.Marshal(map[string]any{
-			"OrgId": s.org, "ScanId": r.ID, "At": at, "Target": r.Target, "VulnId": f.VulnID,
+			"OrgId": orgFromContext(ctx), "ScanId": r.ID, "At": at, "Target": r.Target, "VulnId": f.VulnID,
 			"Severity": f.Severity, "Package": f.Package, "Installed": f.Installed,
 			"FixedVersion": f.FixedVersion, "Title": f.Title, "PrimaryUrl": f.PrimaryURL,
 			"Fixable": boolToUint8(f.Fixable),

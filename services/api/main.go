@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -39,9 +40,11 @@ func main() {
 	slos := newSLOStore(env("ORCHESTR8_SLO_FILE", "../../config/slos.json"))
 
 	// The detection loop lives with the query API: same store, same schedule.
-	ntf := newNotifier(env("ORCHESTR8_NOTIFY_FILE", "../../config/notifications.json"), &auditLog{org: defaultOrg(), ch: ch})
-	eng := &engine{org: defaultOrg(), ch: ch, slos: slos, notify: ntf,
-		interval: envDuration("ORCHESTR8_DETECT_INTERVAL", 30*time.Second)}
+	aud := &auditLog{ch: ch}
+	ntf := newNotifier(env("ORCHESTR8_NOTIFY_FILE", "../../config/notifications.json"), aud)
+	eng := &engine{ch: ch, slos: slos, notify: ntf,
+		interval: envDuration("ORCHESTR8_DETECT_INTERVAL", 30*time.Second),
+		workers:  envInt("ORCHESTR8_DETECT_WORKERS", 4)}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go eng.run(ctx)
@@ -51,16 +54,12 @@ func main() {
 	mux := http.NewServeMux()
 	// What the rules actually see. Correlation bugs are almost always signal
 	// bugs, and reading the inputs beats guessing from the verdict.
-	org := defaultOrg()
-	aud := &auditLog{org: org, ch: ch}
 	dep := &deployer{
-		org:  org,
 		repo: env("ORCHESTR8_GITOPS_REPO", "../../.localdev/gitops"),
 		ch:   ch, slos: slos, audit: aud,
 	}
 	scn := &scanner{
-		org: org,
-		ch:  ch, audit: aud,
+		ch: ch, audit: aud,
 		bin:    env("ORCHESTR8_TRIVY_BIN", "trivy"),
 		docker: env("ORCHESTR8_DOCKER_CONFIG", "../../.localdev/dockerconfig"),
 	}
@@ -290,6 +289,15 @@ func writeJSON(w http.ResponseWriter, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("encode: %v", err)
 	}
+}
+
+func envInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return fallback
 }
 
 func envDuration(key string, fallback time.Duration) time.Duration {

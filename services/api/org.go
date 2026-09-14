@@ -31,7 +31,22 @@ const (
 
 type ctxKey int
 
-const identityKey ctxKey = iota
+const (
+	identityKey ctxKey = iota
+	orgKey
+)
+
+// withOrg puts an organisation on a context that has no session behind it.
+//
+// The background detection loop has no request and therefore no identity, but
+// every store call it makes still has to be scoped. Carrying the tenant on the
+// context means the deployer, the scanner and the audit log read it the same
+// way whether they were reached from an HTTP handler or from the engine —
+// rather than each holding an org fixed at construction, which is what made
+// every one of them single-tenant.
+func withOrg(ctx context.Context, org string) context.Context {
+	return context.WithValue(ctx, orgKey, org)
+}
 
 // defaultOrg is the organisation the background detection engine runs as.
 //
@@ -91,6 +106,20 @@ func requireIdentity(lookup func(context.Context, string) (sessionIdentity, erro
 	})
 }
 
+// orgFromContext is the tenant any store call belongs to.
+//
+// Returns an organisation that cannot exist when there is none, so a missed
+// scoping shows up as an empty result rather than another tenant's data.
+func orgFromContext(ctx context.Context) string {
+	if id, ok := ctx.Value(identityKey).(sessionIdentity); ok {
+		return id.Org
+	}
+	if org, ok := ctx.Value(orgKey).(string); ok {
+		return org
+	}
+	return "\x00none"
+}
+
 // identityOf returns the caller resolved by requireIdentity.
 func identityOf(r *http.Request) (sessionIdentity, bool) {
 	id, ok := r.Context().Value(identityKey).(sessionIdentity)
@@ -103,15 +132,7 @@ func identityOf(r *http.Request) (sessionIdentity, bool) {
 // is no header form and no fallback: a fallback here is a way to read another
 // tenant's data by sending no credential at all, which is exactly the hole
 // step 2 closed on the write side.
-func orgFromRequest(r *http.Request) string {
-	if id, ok := identityOf(r); ok {
-		return id.Org
-	}
-	// Unreachable behind requireIdentity. Returning an org that cannot exist
-	// is the safe failure: a mistake in wiring shows up as an empty dashboard,
-	// never as somebody else's data.
-	return "\x00none"
-}
+func orgFromRequest(r *http.Request) string { return orgFromContext(r.Context()) }
 
 // actorOf names who did something, for the audit ledger.
 //

@@ -12,6 +12,9 @@ DEVKIT=${ORCHESTR8_DEVKIT:-http://localhost:9400}
 # connected: two clusters serve the same model name, and reading "the first
 # llama service" silently checks the wrong one.
 CLUSTER=${ORCHESTR8_CLUSTER:-gcp-usc1}
+# Which tenant the seeded session belongs to. The engine watches every
+# organisation now, so the script has to say which one it is asserting about.
+ORG=${ORCHESTR8_ORG:-local}
 MODEL=${ORCHESTR8_MODEL:-llama-3.3-70b-instruct}
 # How long to wait after injecting before reading the verdict.
 #
@@ -26,8 +29,33 @@ COOL=${COOL:-200}
 
 pass=0; fail=0
 
+# The API requires a session on every /v1 route, so this script needs one too.
+# It seeds the session directly rather than signing in, for the same reason
+# verify-auth does: the credential path is not what is under test here, and
+# standing up an identity provider to check a correlation rule would be
+# ceremony. Removed on exit whatever happens.
+PSQL=${PSQL:-psql -d orchestr8}
+SESSION="verify-engine-$$"
+setup_session() {
+  $PSQL -q <<SQL >/dev/null 2>&1
+INSERT INTO users (id, name, email) VALUES
+  ('eeeeeeee-0000-0000-0000-000000000001','Verify Engine','verify-engine@local.test')
+ON CONFLICT (email) DO NOTHING;
+INSERT INTO memberships (org_id, user_id, role)
+  SELECT id,'eeeeeeee-0000-0000-0000-000000000001','viewer' FROM organizations WHERE slug='$ORG'
+ON CONFLICT DO NOTHING;
+INSERT INTO sessions ("sessionToken","userId",expires)
+VALUES ('$SESSION','eeeeeeee-0000-0000-0000-000000000001', now() + interval '2 hours');
+SQL
+}
+teardown_session() {
+  $PSQL -q -c "DELETE FROM sessions WHERE \"sessionToken\" = '$SESSION'" >/dev/null 2>&1
+  $PSQL -q -c "DELETE FROM users WHERE email = 'verify-engine@local.test'" >/dev/null 2>&1
+}
+trap teardown_session EXIT
+
 verdict_for() {
-  curl -s "$API/v1/debug/signals" 2>/dev/null | CLUSTER="$CLUSTER" MODEL="$MODEL" python3 -c "
+  curl -s -H "Cookie: authjs.session-token=$SESSION" "$API/v1/debug/signals" 2>/dev/null | CLUSTER="$CLUSTER" MODEL="$MODEL" python3 -c "
 import json,os,sys
 try: rows=json.load(sys.stdin)
 except Exception: print('api-unreachable'); raise SystemExit
@@ -53,6 +81,7 @@ check() {
   fi
 }
 
+setup_session
 echo "Correlation engine self-validation"
 echo "  target: $MODEL on $CLUSTER"
 echo "  each case: cool to healthy, inject, wait, read the verdict"

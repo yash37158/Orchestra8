@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,43 +17,145 @@ import (
 // it reads the same store, on the same schedule, and a separate deployable
 // would buy nothing today.
 //
+// It watches every tenant, not one. It used to take a single organisation from
+// an environment variable, which meant a second customer got a working
+// dashboard and no alerts, ever, with nothing to indicate it — the correlation
+// panel said "nothing was provable", when in truth nothing had been examined.
+// That is worse than an outage: it is a silent, confident, wrong reassurance.
+//
 // ponytail: assumes a single writer. Two API replicas would both detect and
 // both write — harmless with ReplacingMergeTree and a stable Id, but wasteful.
 // Move to a leader election or a dedicated engine deployment when the API
 // needs to scale horizontally.
 
 type engine struct {
-	org      string
 	ch       *chClient
 	slos     *sloStore
 	notify   *notifier
 	interval time.Duration
+	// How many tenants are examined at once. Bounded on purpose: unbounded
+	// would let a hundred organisations open a hundred simultaneous queries,
+	// and one at a time would let a single slow tenant delay everybody else's
+	// alerts by the whole sweep.
+	workers int
 
 	// Consecutive ticks each open correlation has gone undetected. An alerting
 	// system that flaps is worse than one that is slightly slow to clear, so a
 	// condition must be absent for several ticks before it is resolved — one
 	// unlucky read must never tear down a correct diagnosis.
+	//
+	// Keyed by organisation AND correlation id. Two tenants can run clusters
+	// with the same name serving the same model, which produces the same
+	// correlation id — sharing a counter would let one tenant's recovery
+	// resolve another's live incident.
+	mu     sync.Mutex
 	misses map[string]int
 }
 
 const missesBeforeResolve = 3
 
+// statusForDetection is what a freshly detected correlation's status becomes,
+// given whatever the store already held for it.
+//
+// Only a human's decision survives a re-detection. The engine's own "resolved"
+// does not: see the note at the call site.
+func statusForDetection(previous string) string {
+	switch previous {
+	case "acknowledged", "suppressed":
+		return previous
+	default:
+		return "open"
+	}
+}
+
+// How long any one tenant may take before it is abandoned for this tick. A
+// sweep that outruns the interval is how alerts start arriving late for
+// everyone, so a tenant whose data is pathological is dropped rather than
+// allowed to hold the sweep open.
+const perOrgBudget = 20 * time.Second
+
 func (e *engine) run(ctx context.Context) {
 	t := time.NewTicker(e.interval)
 	defer t.Stop()
-	e.tick(ctx) // don't make the first correlation wait a full interval
+	e.sweep(ctx) // don't make the first correlation wait a full interval
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			e.tick(ctx)
+			e.sweep(ctx)
 		}
 	}
 }
 
-func (e *engine) tick(ctx context.Context) {
-	signals, err := collectSignals(ctx, e.ch, e.org, e.slos.All())
+// sweep examines every tenant that has sent telemetry recently.
+func (e *engine) sweep(ctx context.Context) {
+	orgs, err := e.ch.activeOrgs(ctx)
+	if err != nil {
+		log.Printf("engine: list tenants: %v", err)
+		return
+	}
+	if len(orgs) == 0 {
+		return
+	}
+
+	workers := e.workers
+	if workers < 1 {
+		workers = 1
+	}
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for _, org := range orgs {
+		select {
+		case <-ctx.Done():
+			return
+		case sem <- struct{}{}:
+		}
+		wg.Add(1)
+		go func(org string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			// A panic in one tenant's rules must not take down detection for
+			// everybody. The engine is the thing that is supposed to notice
+			// trouble; it cannot be the thing that dies of it.
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("engine: tenant %s panicked: %v", org, r)
+				}
+			}()
+			tctx, cancel := context.WithTimeout(withOrg(ctx, org), perOrgBudget)
+			defer cancel()
+			e.tick(tctx, org)
+		}(org)
+	}
+	wg.Wait()
+}
+
+// activeOrgs lists the tenants worth examining.
+//
+// Read from telemetry rather than from the control plane: an organisation that
+// has sent nothing cannot produce a correlation, so querying the customer list
+// would mean sweeping accounts that provably have nothing to find. The window
+// is generous enough to cover a cluster that is briefly quiet.
+func (c *chClient) activeOrgs(ctx context.Context) ([]string, error) {
+	var rows []struct {
+		Org string `json:"org"`
+	}
+	if err := c.query(ctx, `
+SELECT DISTINCT OrgId AS org FROM orchestr8.inference_minute
+WHERE Minute >= now() - INTERVAL 30 MINUTE AND OrgId != ''
+ORDER BY org`, &rows); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.Org)
+	}
+	return out, nil
+}
+
+func (e *engine) tick(ctx context.Context, org string) {
+	signals, err := collectSignals(ctx, e.ch, org, e.slos.All())
 	if err != nil {
 		log.Printf("engine: collect: %v", err)
 		return
@@ -60,7 +163,7 @@ func (e *engine) tick(ctx context.Context) {
 	// A user's decision outranks the engine's. If someone acknowledged or
 	// suppressed a condition that is still happening, re-detecting it must not
 	// quietly flip it back to open and re-page them.
-	existing, err := e.ch.correlationStatuses(ctx, e.org)
+	existing, err := e.ch.correlationStatuses(ctx, org)
 	if err != nil {
 		log.Printf("engine: read statuses: %v", err)
 		existing = map[string]correlationState{}
@@ -88,8 +191,25 @@ func (e *engine) tick(ctx context.Context) {
 			continue
 		}
 		prev := existing[c.ID]
-		if prev.Status != "" && prev.Status != "open" {
-			c.Status = prev.Status
+		// A human's decision outranks the engine, so acknowledged and
+		// suppressed are carried forward untouched.
+		//
+		// "resolved" is NOT a decision — it is the engine's own bookkeeping
+		// for a condition that stopped being detected. Carrying it forward
+		// meant every recurrence was written straight back as resolved,
+		// filtered out of the list, and never paged: the product went blind to
+		// any incident that had happened once before. Thermal throttling comes
+		// and goes by nature, so that was most of them.
+		//
+		// Re-detecting a resolved condition means it is happening again.
+		c.Status = statusForDetection(prev.Status)
+		reopened := prev.Status == "resolved"
+		if reopened {
+			// A fresh occurrence deserves a fresh page. The old notification
+			// record belongs to an incident that already ended, and leaving it
+			// in place would suppress this one as a duplicate of it.
+			prev.NotifiedSeverity, prev.NotifiedAt = "", time.Time{}
+			log.Printf("engine: [%s] reopened %s", org, c.ID)
 		}
 		// Carry the notification record forward by default, so re-detecting an
 		// ongoing condition does not re-page anyone.
@@ -103,7 +223,7 @@ func (e *engine) tick(ctx context.Context) {
 					// Record against the service too, so a second correlation
 					// for the same service in this same tick does not page again.
 					pagedForService[key] = c.Severity
-					log.Printf("engine: notified %s (%s, service=%s) -> %v", c.ID, reason, key, delivered)
+					log.Printf("engine: [%s] notified %s (%s, service=%s) -> %v", org, c.ID, reason, key, delivered)
 				}
 			}
 		}
@@ -115,40 +235,58 @@ func (e *engine) tick(ctx context.Context) {
 	// "unknown" replaced by a thermal diagnosis once the card actually throttled.
 	// Leaving those open is how a correlation list turns into the alert-fatigue
 	// problem this product exists to remove.
-	if e.misses == nil {
-		e.misses = map[string]int{}
-	}
 	live := map[string]bool{}
 	for _, c := range found {
 		live[c.ID] = true
-		delete(e.misses, c.ID)
 	}
 	for id, st := range existing {
-		if st.Status != "open" || live[id] {
+		if st.Status != "open" {
 			continue
 		}
-		e.misses[id]++
-		if e.misses[id] < missesBeforeResolve {
+		if live[id] {
+			e.forget(org, id)
 			continue
 		}
-		if err := e.ch.setStatus(ctx, e.org, id, "resolved"); err != nil {
+		if e.miss(org, id) < missesBeforeResolve {
+			continue
+		}
+		if err := e.ch.setStatus(ctx, org, id, "resolved"); err != nil {
 			log.Printf("engine: resolve %s: %v", id, err)
 			continue
 		}
-		delete(e.misses, id)
-		log.Printf("engine: resolved %s (absent for %d ticks)", id, missesBeforeResolve)
+		e.forget(org, id)
+		log.Printf("engine: [%s] resolved %s (absent for %d ticks)", org, id, missesBeforeResolve)
 	}
 
 	if len(found) == 0 {
 		return
 	}
-	if err := e.ch.insertCorrelations(ctx, e.org, found, notifyState); err != nil {
+	if err := e.ch.insertCorrelations(ctx, org, found, notifyState); err != nil {
 		log.Printf("engine: insert: %v", err)
 		return
 	}
 	for _, c := range found {
-		log.Printf("engine: %s  %s  conf=%.2f  %s", c.Severity, c.Cause.Kind, c.Confidence, c.ID)
+		log.Printf("engine: [%s] %s  %s  conf=%.2f  %s", org, c.Severity, c.Cause.Kind, c.Confidence, c.ID)
 	}
+}
+
+// miss records that a correlation went undetected and returns the running
+// count. Scoped by tenant, and guarded because tenants are swept concurrently.
+func (e *engine) miss(org, id string) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.misses == nil {
+		e.misses = map[string]int{}
+	}
+	k := scopeKey(org, id)
+	e.misses[k]++
+	return e.misses[k]
+}
+
+func (e *engine) forget(org, id string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.misses, scopeKey(org, id))
 }
 
 // ------------------------------------------------------------ persistence
@@ -219,7 +357,7 @@ func (c *chClient) insertCorrelations(ctx context.Context, org string, cs []Corr
 		}
 		row := correlationRow{
 			OrgId: org,
-			Id: x.ID, DetectedAt: chTime(x.DetectedAt), UpdatedAt: chTime(x.UpdatedAt),
+			Id:    x.ID, DetectedAt: chTime(x.DetectedAt), UpdatedAt: chTime(x.UpdatedAt),
 			Status: x.Status, Severity: x.Severity, Summary: x.Summary,
 			WindowStart: chTime(x.WindowStart), WindowEnd: chTime(x.WindowEnd),
 			ServiceId: x.Symptom.ServiceID, Model: x.Symptom.Model,

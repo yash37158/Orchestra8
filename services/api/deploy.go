@@ -22,11 +22,11 @@ import (
 // The function this replaces decided success with `Math.random() > 0.3`.
 
 type DeployRequest struct {
-	App       string `json:"app"`       // manifest basename, e.g. "llama-3.3-70b"
+	App       string `json:"app"` // manifest basename, e.g. "llama-3.3-70b"
 	ClusterID string `json:"clusterId"`
-	Image     string `json:"image"`     // full image ref including tag
+	Image     string `json:"image"` // full image ref including tag
 	Replicas  int    `json:"replicas"`
-	Strategy  string `json:"strategy"`  // rolling | canary | blue-green
+	Strategy  string `json:"strategy"` // rolling | canary | blue-green
 	Actor     string `json:"actor"`
 	Approved  bool   `json:"approved"`
 }
@@ -62,7 +62,6 @@ type Deployment struct {
 }
 
 type deployer struct {
-	org   string
 	repo  string
 	ch    *chClient
 	slos  *sloStore
@@ -144,7 +143,7 @@ func (d *deployer) Preflight(ctx context.Context, req DeployRequest) (*Preflight
 
 	// 5. Admission policy. No cluster is reachable from here, so this cannot run.
 	add(PreflightCheck{ID: "policy", Name: "Admission policy dry-run", Status: "skipped",
-		Detail: "No admission controller reachable. Configure a Kyverno or Gatekeeper endpoint to evaluate policy before deploy.",
+		Detail:   "No admission controller reachable. Configure a Kyverno or Gatekeeper endpoint to evaluate policy before deploy.",
 		Blocking: false})
 
 	for _, c := range pf.Checks {
@@ -160,7 +159,7 @@ func (d *deployer) Preflight(ctx context.Context, req DeployRequest) (*Preflight
 // actually free right now, using live DCGM telemetry.
 func (d *deployer) capacityCheck(ctx context.Context, req DeployRequest) (*PreflightCheck, error) {
 	var gpus []gpuSignal
-	if err := d.ch.query(ctx, fmt.Sprintf(qGPUState, orgClause(d.org), 300), &gpus); err != nil {
+	if err := d.ch.query(ctx, fmt.Sprintf(qGPUState, orgClause(orgFromContext(ctx)), 300), &gpus); err != nil {
 		return nil, err
 	}
 	var inCluster []gpuSignal
@@ -212,7 +211,7 @@ func (d *deployer) capacityCheck(ctx context.Context, req DeployRequest) (*Prefl
 
 // sloCheck refuses to silently deploy on top of a live incident.
 func (d *deployer) sloCheck(ctx context.Context, req DeployRequest) (*PreflightCheck, error) {
-	corrs, err := d.ch.correlations(ctx, d.org, "")
+	corrs, err := d.ch.correlations(ctx, orgFromContext(ctx), "")
 	if err != nil {
 		return nil, fmt.Errorf("correlation engine unreachable")
 	}
@@ -236,7 +235,7 @@ func (d *deployer) sloCheck(ctx context.Context, req DeployRequest) (*PreflightC
 }
 
 func (d *deployer) imageScanCheck(ctx context.Context, req DeployRequest) PreflightCheck {
-	res, err := latestScanFor(ctx, d.ch, d.org, req.Image)
+	res, err := latestScanFor(ctx, d.ch, orgFromContext(ctx), req.Image)
 	if err != nil || res == nil {
 		return PreflightCheck{ID: "scan", Name: "Image scan", Status: "skipped",
 			Detail: fmt.Sprintf("No scan on record for %s. Run a scan to gate this deploy on it.", req.Image)}

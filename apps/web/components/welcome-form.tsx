@@ -31,7 +31,7 @@ export function WelcomeForm({ suggestedName, suggestedSlug }: { suggestedName: s
       <div className="space-y-1.5">
         <label htmlFor="name" className="text-xs font-medium text-muted-foreground">Organisation name</label>
         <input
-          id="name" name="name" required autoFocus className={field} placeholder="Acme Inc"
+          id="name" name="name" required autoFocus autoComplete="organization" className={field} placeholder="Acme Inc"
           value={name}
           onChange={(e) => {
             setName(e.target.value)
@@ -43,7 +43,7 @@ export function WelcomeForm({ suggestedName, suggestedSlug }: { suggestedName: s
       <div className="space-y-1.5">
         <label htmlFor="slug" className="text-xs font-medium text-muted-foreground">Identifier</label>
         <input
-          id="slug" name="slug" required className={`${field} font-mono`} placeholder="acme"
+          id="slug" name="slug" required autoComplete="off" className={`${field} font-mono`} placeholder="acme"
           value={slug}
           onChange={(e) => { setSlugTouched(true); setSlug(toSlug(e.target.value)) }}
         />

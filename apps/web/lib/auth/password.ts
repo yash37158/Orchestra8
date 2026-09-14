@@ -112,7 +112,8 @@ export async function bootstrapOwner(
       `INSERT INTO users (email, name, password_hash, "emailVerified") VALUES ($1, $2, $3, now()) RETURNING id`,
       [email.trim(), email.split("@")[0], hash],
     )
-    const slug = slugFromEmail(email)
+    // An unusable domain still needs a slug the database will accept.
+    const slug = slugFromEmail(email) || "orchestr8"
     const org = await client.query(
       `INSERT INTO organizations (slug, name) VALUES ($1, $2) RETURNING id`,
       [slug, email.split("@")[1] ?? slug],

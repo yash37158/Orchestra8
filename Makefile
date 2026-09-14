@@ -17,7 +17,7 @@ PLATFORM_NS ?= orchestr8-platform
 LOGS    := .localdev/logs
 
 .PHONY: up down status logs store schema devkit collector api web \
-        check contract test fault surge healthy scenarios scan audit hook alerts verify-engine verify-ingest verify-auth images deploy undeploy control-plane tenancy clean-store
+        check contract test fault surge healthy scenarios scan audit hook alerts verify-engine verify-ingest verify-auth sso sso-stop images deploy undeploy control-plane tenancy clean-store
 
 # ---------------------------------------------------------------- one command
 # The individual targets below run in the FOREGROUND, which is what you want
@@ -155,6 +155,22 @@ deploy:                      ## install the platform into the current kube conte
 
 undeploy:                    ## remove the platform (volumes and secrets are kept)
 	@helm uninstall orchestr8 -n $(PLATFORM_NS)
+
+sso:                         ## start a local OpenID Connect provider so SSO can be tried without Google
+	@docker rm -f orchestr8-dex >/dev/null 2>&1 || true
+	@docker run -d --name orchestr8-dex -p 5556:5556 \
+		-v "$(PWD)/deploy/dev/dex.yaml:/etc/dex/config.yaml:ro" \
+		ghcr.io/dexidp/dex:v2.41.1 dex serve /etc/dex/config.yaml >/dev/null
+	@for i in $$(seq 1 40); do curl -sf http://localhost:5556/dex/.well-known/openid-configuration >/dev/null 2>&1 && break; sleep 1; done
+	@printf '  local SSO ready. Add to apps/web/.env.local, then restart the web server:\n\n'
+	@printf '    AUTH_OIDC_ISSUER=http://localhost:5556/dex\n'
+	@printf '    AUTH_OIDC_ID=orchestr8\n'
+	@printf '    AUTH_OIDC_SECRET=orchestr8-local-dev\n'
+	@printf '    AUTH_OIDC_NAME=Local SSO\n\n'
+	@printf '  sign in as dev@orchestr8.local / password123\n'
+
+sso-stop:                    ## stop the local OpenID Connect provider
+	@docker rm -f orchestr8-dex >/dev/null 2>&1 && echo "  stopped" || echo "  not running"
 
 verify-auth:                 ## prove sign-in: no credential reaches no data, and revocation is immediate
 	@bash scripts/verify-auth.sh

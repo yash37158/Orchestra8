@@ -125,14 +125,18 @@ export async function registerOrg(
 }
 
 /**
- * A slug from the email domain: acme.com -> "acme".
+ * A slug suggestion from the email domain: acme.com -> "acme".
  *
  * Constrained to the shape the database CHECK enforces and telemetry carries,
- * because an org slug ends up as a Kubernetes label value. A domain that
- * cannot be reduced to that shape falls back rather than failing the insert.
+ * because an org slug ends up as a Kubernetes label value.
+ *
+ * Returns "" when no usable slug can be derived, rather than a stand-in name.
+ * It used to return "orchestr8", which callers then had to treat as "nothing"
+ * — and silently blanked the suggestion for anyone whose company genuinely is
+ * on that domain.
  */
 export function slugFromEmail(email: string | null): string {
   const domain = email?.split("@")[1]?.split(".")[0] ?? ""
   const slug = domain.toLowerCase().replace(/[^a-z0-9-]/g, "").replace(/^-+|-+$/g, "").slice(0, 40)
-  return /^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/.test(slug) ? slug : "orchestr8"
+  return SLUG_RE.test(slug) ? slug : ""
 }

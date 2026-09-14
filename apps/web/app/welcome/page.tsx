@@ -36,7 +36,7 @@ export default async function WelcomePage() {
           </p>
         </div>
 
-        <WelcomeForm suggestedName={suggestedName} suggestedSlug={suggestedSlug === "orchestr8" ? "" : suggestedSlug} />
+        <WelcomeForm suggestedName={suggestedName} suggestedSlug={suggestedSlug} />
 
         <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
           You will be the owner. Teammates join by invitation, and your telemetry never leaves this

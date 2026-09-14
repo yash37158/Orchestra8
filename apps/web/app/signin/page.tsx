@@ -48,6 +48,8 @@ export default async function SignInPage({
     },
   ].filter((p) => p.on)
 
+  const signupOpen = allowSignup()
+
   let bootstrap = false
   try {
     bootstrap = await needsBootstrap(pool)
@@ -63,8 +65,8 @@ export default async function SignInPage({
         <div className="mb-7">
           <h1 className="text-lg font-semibold tracking-tight">Orchestr8</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {bootstrap && oauth.length === 0
-              ? "Nobody owns this deployment yet. Create the first account."
+            {bootstrap
+              ? "Nobody owns this deployment yet."
               : "GPU and inference observability."}
           </p>
         </div>
@@ -75,11 +77,12 @@ export default async function SignInPage({
           </div>
         )}
 
-        {/* Single sign-on first when it is available. It is one click, it
-            carries the identity the audit ledger will record, and it is what
-            most people arriving at a hosted deployment expect. Email and
-            password sits underneath as the path that needs nothing external —
-            which a self-hosted install may be relying on entirely. */}
+        {/* Single sign-on first wherever it is available — including on an
+            unclaimed deployment, where with open registration it is the
+            shortest route to becoming the owner. Hiding it there was a hole:
+            with SSO configured, registration closed and nobody signed up yet,
+            the provider refused everyone and the form that could have fixed it
+            was not on the page. */}
         {oauth.length > 0 && (
           <div className="space-y-2.5">
             {oauth.map((p) => (
@@ -98,18 +101,25 @@ export default async function SignInPage({
                 </button>
               </form>
             ))}
-            {/* Only true when signup is open. Promising a newcomer an account
-                on a deployment that will refuse them is worse than saying
-                nothing — they follow the instruction and hit a wall. */}
             <p className="pt-1 text-[11px] leading-relaxed text-muted-foreground">
-              {allowSignup()
-                ? "New here? Signing in creates your account and walks you through registering an organisation — once."
-                : "This deployment is invite-only. Sign in with an account an owner has already added."}
+              {!signupOpen
+                ? "This deployment is invite-only. Sign in with an account an owner has already added."
+                : bootstrap
+                  ? "The first person to sign in becomes the owner."
+                  : "New here? Signing in creates your account and walks you through registering an organisation — once."}
             </p>
           </div>
         )}
 
-        {bootstrap && oauth.length === 0 ? (
+        <div className="my-5 flex items-center gap-3">
+          <div className="h-px flex-1 bg-border" />
+          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+            {oauth.length > 0 ? "or" : bootstrap ? "set up" : "sign in"}
+          </span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
+        {bootstrap ? (
           <>
             <BootstrapForm />
             <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
@@ -117,26 +127,30 @@ export default async function SignInPage({
               <code className="mt-1.5 block overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-[11px]">
                 kubectl -n orchestr8 get secret orchestr8-orchestr8-auth -o jsonpath=&#123;.data.ORCHESTR8_BOOTSTRAP_TOKEN&#125; | base64 -d
               </code>
-              This account owns the organisation. Everyone after joins by invitation.
+              Running locally, it is ORCHESTR8_BOOTSTRAP_TOKEN in apps/web/.env.local.
             </p>
           </>
         ) : (
-          <>
-            {oauth.length > 0 && (
-              <div className="my-5 flex items-center gap-3">
-                <div className="h-px flex-1 bg-border" />
-                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">or</span>
-                <div className="h-px flex-1 bg-border" />
-              </div>
-            )}
-            <PasswordForm />
-            <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
-              {oauth.length === 0 && "No single sign-on provider is configured on this deployment. "}
-              Telemetry stays scoped to your organisation. Collectors authenticate separately with an
-              ingest token, issued per cluster.
-            </p>
-          </>
+          <PasswordForm />
         )}
+
+        {/* Named explicitly rather than left as an absence. A page with no
+            sign-on button looks like a product that does not support it,
+            rather than a deployment that has not been given an issuer. */}
+        {oauth.length === 0 && (
+          <p className="mt-6 rounded-md border bg-card px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+            No single sign-on provider is configured. Orchestr8 supports Google, GitHub and any
+            OpenID Connect provider — Okta, Entra, Keycloak, Auth0. Set
+            <code className="mx-1 rounded bg-muted px-1 py-0.5 font-mono">auth.oidc.issuer</code>
+            and a client pair, or run <code className="mx-1 rounded bg-muted px-1 py-0.5 font-mono">make sso</code>
+            for a local provider to try it against.
+          </p>
+        )}
+
+        <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
+          Telemetry stays scoped to your organisation. Collectors authenticate separately with an
+          ingest token, issued per cluster.
+        </p>
       </div>
     </main>
   )

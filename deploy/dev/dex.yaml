@@ -1,0 +1,30 @@
+# A local OpenID Connect provider, so single sign-on can be developed and
+# demonstrated without registering an app with Google.
+#
+# DEVELOPMENT ONLY. The client secret and the user password below are in the
+# repository on purpose — they guard nothing, because this issuer only ever
+# runs on a laptop and only ever trusts a redirect back to localhost:3000.
+# Never point a deployment at this.
+issuer: http://localhost:5556/dex
+storage: { type: memory }
+web: { http: 0.0.0.0:5556 }
+oauth2: { skipApprovalScreen: true }
+
+staticClients:
+  - id: orchestr8
+    name: Orchestr8
+    secret: orchestr8-local-dev
+    redirectURIs: ["http://localhost:3000/api/auth/callback/oidc"]
+
+enablePasswordDB: true
+staticPasswords:
+  # dev@orchestr8.local / password123
+  - email: "dev@orchestr8.local"
+    hash: "$2b$10$CNFpzB9jAqRaUeN1.0irDez1PMHvUc28Vm5HrpKgnf7hnNfcbeHi6"
+    username: "dev"
+    userID: "00000000-0000-0000-0000-0000000000de"
+  # A second identity, for checking that two people land in two organisations.
+  - email: "someone@other.local"
+    hash: "$2b$10$CNFpzB9jAqRaUeN1.0irDez1PMHvUc28Vm5HrpKgnf7hnNfcbeHi6"
+    username: "someone"
+    userID: "00000000-0000-0000-0000-0000000000ce"

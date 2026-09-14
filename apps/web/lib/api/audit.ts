@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { API_URL, apiFetch, describeStatus } from "@/lib/api/fetch"
+import { API_URL, apiFetch, describeStatus, rethrowRedirect } from "@/lib/api/fetch"
 
 
 export const AuditEntry = z.object({
@@ -37,6 +37,7 @@ export async function getAudit(): Promise<AuditView> {
     const verification = verifyRes.ok ? Verification.parse(await verifyRes.json()) : null
     return { entries: list.entries ?? [], verification, error: null }
   } catch (e) {
+    rethrowRedirect(e)
     return { entries: [], verification: null, error: e instanceof Error ? e.message : "Unknown error" }
   }
 }

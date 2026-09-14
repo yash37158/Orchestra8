@@ -1,5 +1,5 @@
 import { DashboardResponse } from "@orchestr8/contracts"
-import { API_URL, apiFetch, describeStatus } from "@/lib/api/fetch"
+import { API_URL, apiFetch, describeStatus, rethrowRedirect } from "@/lib/api/fetch"
 
 
 export type DashboardResult =
@@ -45,6 +45,7 @@ export async function getDashboard(): Promise<DashboardResult> {
     }
     return { ok: true, data: parsed.data }
   } catch (err) {
+    rethrowRedirect(err)
     // Deliberately no mock fallback. Silently serving fake data when the
     // backend is down is the exact failure mode this refactor exists to end.
     return {

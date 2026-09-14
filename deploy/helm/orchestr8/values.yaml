@@ -81,6 +81,9 @@ auth:
   # Signs session cookies. Generated once and preserved across upgrades —
   # rotating it signs everyone out.
   secret: ""
+  # Claims the deployment, once. Generated when empty; read it with the command
+  # NOTES.txt prints.
+  bootstrapToken: ""
   google: { clientId: "", clientSecret: "" }
   github: { clientId: "", clientSecret: "" }
   existingSecret: ""      # provide all of the above yourself instead

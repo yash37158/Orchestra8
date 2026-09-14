@@ -1,5 +1,5 @@
 import { ClustersResponse } from "@orchestr8/contracts"
-import { API_URL, apiFetch, describeStatus } from "@/lib/api/fetch"
+import { API_URL, apiFetch, describeStatus, rethrowRedirect } from "@/lib/api/fetch"
 
 
 export type ClustersResult =
@@ -32,6 +32,7 @@ export async function getClusters(): Promise<ClustersResult> {
     }
     return { ok: true, data: parsed.data }
   } catch (err) {
+    rethrowRedirect(err)
     return {
       ok: false,
       error: err instanceof Error ? `Cannot reach orchestr8-api at ${API_URL}: ${err.message}` : "Unknown error",

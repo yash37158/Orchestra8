@@ -1,4 +1,5 @@
 import { cookies } from "next/headers"
+import { redirect } from "next/navigation"
 
 /**
  * Calls the Go API as the signed-in user.
@@ -27,12 +28,39 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
     headers.set("cookie", `${name}=${token}`)
   }
 
-  return fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${API_URL}${path}`, {
     ...init,
     headers,
     cache: "no-store",
     signal: init.signal ?? AbortSignal.timeout(8000),
   })
+
+  // A 401 means the session went away underneath a rendered page: signed out
+  // elsewhere, expired, or the membership revoked. The browser still holds the
+  // cookie, so the middleware — which only checks that one is present — waves
+  // it through, and every page then rendered "orchestr8-api returned 401" over
+  // advice to start a server that was running the whole time.
+  //
+  // The stale cookie is left alone: Next.js only permits cookie writes from a
+  // Server Action or Route Handler, and this runs during a render. It does not
+  // need clearing — signing in again overwrites it, and until then every
+  // protected page lands back here and redirects to the same place.
+  if (res.status === 401) {
+    redirect("/signin?error=SessionEnded")
+  }
+  return res
+}
+
+/**
+ * Re-throws Next's redirect signal.
+ *
+ * redirect() works by throwing, so a `catch (err)` meant for network failures
+ * swallows it and the page renders an error instead of navigating. Every
+ * catch around apiFetch has to let this one through.
+ */
+export function rethrowRedirect(err: unknown): void {
+  const digest = (err as { digest?: unknown } | null)?.digest
+  if (typeof digest === "string" && digest.startsWith("NEXT_REDIRECT")) throw err
 }
 
 /**

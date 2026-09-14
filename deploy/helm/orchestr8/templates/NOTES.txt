@@ -2,12 +2,17 @@ Orchestr8 {{ .Chart.AppVersion }} is installing into {{ .Release.Namespace }}.
 
   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
 
+  CLAIM IT FIRST. The sign-in page offers to create an owner account until
+  somebody does, and it asks for this token:
+
+      kubectl -n {{ .Release.Namespace }} get secret {{ include "orchestr8.fullname" . }}-auth \
+        -o jsonpath='{.data.ORCHESTR8_BOOTSTRAP_TOKEN}' | base64 -d
+
+    That account owns the organisation. Everyone after joins by invitation.
 {{- if not (or .Values.auth.google.clientId .Values.auth.github.clientId .Values.auth.existingSecret) }}
 
-  ! NOBODY CAN SIGN IN YET.
-
-    No OAuth provider is configured, so the sign-in page has no working button.
-    Register an app with Google or GitHub, callback:
+  Single sign-on is not configured, so email and password is the only way in.
+  To add Google or GitHub, register an app with this callback:
 
       {{ .Values.web.publicUrl | default "http://localhost:8080" }}/api/auth/callback/google
 
@@ -15,10 +20,6 @@ Orchestr8 {{ .Chart.AppVersion }} is installing into {{ .Release.Namespace }}.
 
       helm upgrade {{ .Release.Name }} ... \
         --set auth.google.clientId=... --set auth.google.clientSecret=...
-
-    The first account to sign in founds the organisation and owns it. Everyone
-    after that needs a membership somebody inside creates — so sign in yourself
-    before sharing the address.
 {{- end }}
 {{- if not .Values.ingress.enabled }}
 

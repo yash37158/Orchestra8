@@ -1,6 +1,6 @@
 import { Correlation } from "@orchestr8/contracts"
 import { z } from "zod"
-import { API_URL, apiFetch, describeStatus } from "@/lib/api/fetch"
+import { API_URL, apiFetch, describeStatus, rethrowRedirect } from "@/lib/api/fetch"
 
 
 const SeriesResponse = z.object({
@@ -38,6 +38,7 @@ async function get<T>(path: string, schema: z.ZodType<T>): Promise<Result<T>> {
     }
     return { ok: true, data: parsed.data }
   } catch (err) {
+    rethrowRedirect(err)
     return { ok: false, error: err instanceof Error ? `Cannot reach orchestr8-api: ${err.message}` : "Unknown error" }
   }
 }

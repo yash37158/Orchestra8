@@ -8,7 +8,7 @@
 set -uo pipefail
 
 API=${ORCHESTR8_API:-http://localhost:8088}
-WEB=${ORCHESTR8_WEB:-http://localhost:3000}
+WEB=${ORCHESTR8_WEB:-http://localhost:3001}
 PSQL=${PSQL:-psql -d orchestr8}
 
 pass=0; fail=0

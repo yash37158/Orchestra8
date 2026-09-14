@@ -3,7 +3,7 @@
 #
 # DEVELOPMENT ONLY. The client secret and the user password below are in the
 # repository on purpose — they guard nothing, because this issuer only ever
-# runs on a laptop and only ever trusts a redirect back to localhost:3000.
+# runs on a laptop and only ever trusts a redirect back to localhost.
 # Never point a deployment at this.
 issuer: http://localhost:5556/dex
 storage: { type: memory }
@@ -14,7 +14,13 @@ staticClients:
   - id: orchestr8
     name: Orchestr8
     secret: orchestr8-local-dev
-    redirectURIs: ["http://localhost:3000/api/auth/callback/oidc"]
+    # Both ports: the stack runs the UI on 3001, and a bare `next dev` with
+    # PORT unset would land on 3000. A provider only redirects to URIs it was
+    # told about, so an unlisted one fails at the callback with an error that
+    # names neither side.
+    redirectURIs:
+      - "http://localhost:3001/api/auth/callback/oidc"
+      - "http://localhost:3000/api/auth/callback/oidc"
 
 enablePasswordDB: true
 staticPasswords:

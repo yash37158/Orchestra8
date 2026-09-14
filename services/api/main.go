@@ -34,7 +34,7 @@ func main() {
 	}
 
 	addr := env("ORCHESTR8_ADDR", ":8088") // 8080 is a common local collision (Tomcat, etc.)
-	origins := strings.Split(env("ORCHESTR8_CORS_ORIGINS", "http://localhost:3000"), ",")
+	origins := strings.Split(env("ORCHESTR8_CORS_ORIGINS", "http://localhost:3001"), ",")
 
 	ch := newCHClient(env("ORCHESTR8_CLICKHOUSE_URL", "http://127.0.0.1:8123/?database=orchestr8&output_format_json_quote_64bit_integers=0"))
 	slos := newSLOStore(env("ORCHESTR8_SLO_FILE", "../../config/slos.json"))
@@ -93,7 +93,7 @@ func main() {
 	mux.HandleFunc("/v1/onboarding/status", func(w http.ResponseWriter, r *http.Request) { handleOnboardingStatus(w, r, ch, ctrl, rejects) })
 	mux.HandleFunc("/v1/slos", func(w http.ResponseWriter, r *http.Request) { handleSLOUpsert(w, r, slos, aud) })
 
-	appURL := env("ORCHESTR8_APP_URL", "http://localhost:3000")
+	appURL := env("ORCHESTR8_APP_URL", "http://localhost:3001")
 	mux.HandleFunc("/v1/team", func(w http.ResponseWriter, r *http.Request) { handleTeam(w, r, ctrl) })
 	mux.HandleFunc("/v1/invitations", func(w http.ResponseWriter, r *http.Request) {
 		handleInvitations(w, r, ctrl, aud, appURL)

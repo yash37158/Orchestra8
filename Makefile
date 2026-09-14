@@ -5,7 +5,7 @@
 #   make devkit     GPU fleet simulator  :9400   (stands in for DCGM + vLLM)
 #   make collector  otel collector       :13133
 #   make api        query API            :8088
-#   make web        next.js UI           :3000
+#   make web        next.js UI           :$(WEB_PORT)
 #
 # `make check` runs everything that can fail.
 
@@ -13,6 +13,8 @@ CH_DATA := .localdev/clickhouse
 OTELCOL := .localdev/bin/otelcol-contrib
 SECRET  := .localdev/collector.secret
 TAG     ?= dev
+# The UI's dev port. 3000 is a common collision, so the stack claims 3001.
+WEB_PORT ?= 3001
 PLATFORM_NS ?= orchestr8-platform
 LOGS    := .localdev/logs
 
@@ -43,22 +45,22 @@ up:                          ## start the whole stack in the background
 	@lsof -ti:8088  >/dev/null 2>&1 || (cd services/api && nohup go run . > ../../$(LOGS)/api.log 2>&1 </dev/null &)
 	@for i in $$(seq 1 60); do lsof -ti:8088 >/dev/null 2>&1 && break; sleep 0.5; done; \
 		lsof -ti:8088 >/dev/null 2>&1 || echo "  !! api failed - see $(LOGS)/api.log"
-	@lsof -ti:3000  >/dev/null 2>&1 || (cd apps/web && nohup npm run dev > ../../$(LOGS)/web.log 2>&1 </dev/null &)
-	@for i in $$(seq 1 60); do lsof -ti:3000 >/dev/null 2>&1 && break; sleep 0.5; done; \
-		lsof -ti:3000 >/dev/null 2>&1 || echo "  !! web failed - see $(LOGS)/web.log"
+	@lsof -ti:$(WEB_PORT)  >/dev/null 2>&1 || (cd apps/web && PORT=$(WEB_PORT) nohup npm run dev > ../../$(LOGS)/web.log 2>&1 </dev/null &)
+	@for i in $$(seq 1 60); do lsof -ti:$(WEB_PORT) >/dev/null 2>&1 && break; sleep 0.5; done; \
+		lsof -ti:$(WEB_PORT) >/dev/null 2>&1 || echo "  !! web failed - see $(LOGS)/web.log"
 	@echo ""
 	@$(MAKE) --no-print-directory status
 	@echo ""
-	@echo "  open http://localhost:3000/dashboard"
+	@echo "  open http://localhost:$(WEB_PORT)"
 
 down:                        ## stop everything started by `make up`
-	@for p in 3000 8088 13133 9400 8123; do \
+	@for p in $(WEB_PORT) 8088 13133 9400 8123; do \
 		pid=$$(lsof -ti:$$p 2>/dev/null); \
 		if [ -n "$$pid" ]; then kill $$pid 2>/dev/null && echo "  stopped :$$p"; fi; \
 	done
 
 status:                      ## what is running
-	@for pair in "8123 clickhouse" "9400 devkit" "13133 collector" "8088 api" "4319 ingest" "3000 web"; do \
+	@for pair in "8123 clickhouse" "9400 devkit" "13133 collector" "8088 api" "4319 ingest" "$(WEB_PORT) web"; do \
 		port=$${pair%% *}; name=$${pair#* }; \
 		if lsof -ti:$$port >/dev/null 2>&1; then echo "  UP    $$name  :$$port"; \
 		else echo "  down  $$name  :$$port"; fi; \
@@ -99,7 +101,7 @@ api:                         ## query API on :8088
 	cd services/api && go run .
 
 web:                         ## Next.js UI
-	cd apps/web && npm run dev
+	cd apps/web && PORT=$(WEB_PORT) npm run dev
 
 # Drive the simulated fleet into a fault. This is how the correlation engine
 # gets developed without hardware, and later how it gets proven (F-25).

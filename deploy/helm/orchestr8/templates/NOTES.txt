@@ -18,9 +18,14 @@ Orchestr8 {{ .Chart.AppVersion }} is installing into {{ .Release.Namespace }}.
         --set auth.oidc.issuer=https://your-idp/... \
         --set auth.oidc.clientId=... --set auth.oidc.clientSecret=...
 
-  For Google or GitHub, register an app with this callback:
+    with this redirect URI registered at the provider:
 
-      {{ .Values.web.publicUrl | default "http://localhost:8080" }}/api/auth/callback/google
+      {{ include "orchestr8.publicUrl" . | default "http://localhost:8080" }}/api/auth/callback/oidc
+
+  For Google or GitHub, register an app and paste this callback in exactly:
+
+      {{ include "orchestr8.publicUrl" . | default "http://localhost:8080" }}/api/auth/callback/google
+      {{ include "orchestr8.publicUrl" . | default "http://localhost:8080" }}/api/auth/callback/github
 
     then:
 

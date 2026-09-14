@@ -71,3 +71,19 @@ URL is refused with a 401 — which is how the first install failed.
 {{- printf "http://%s:$(CLICKHOUSE_PASSWORD)@%s-clickhouse:8123/?database=%s&output_format_json_quote_64bit_integers=0" .Values.clickhouse.username (include "orchestr8.fullname" .) .Values.clickhouse.database -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The address browsers reach the UI at.
+
+OAuth callbacks come back here and the identity provider compares them against
+what was registered, character for character, so this has to be the real
+external URL and not whatever the pod happens to see. Taken from publicUrl, or
+derived from the Ingress host when only that is set.
+*/}}
+{{- define "orchestr8.publicUrl" -}}
+{{- if .Values.web.publicUrl -}}
+{{- .Values.web.publicUrl | trimSuffix "/" -}}
+{{- else if and .Values.ingress.enabled .Values.ingress.host -}}
+{{- printf "%s://%s" (ternary "https" "http" (gt (len .Values.ingress.tls) 0)) .Values.ingress.host -}}
+{{- end -}}
+{{- end -}}

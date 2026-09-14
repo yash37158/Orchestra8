@@ -51,16 +51,23 @@ spec:
             # same rows. One control plane, two readers.
             - name: ORCHESTR8_CONTROL_DSN
               value: {{ include "orchestr8.postgresDsn" . | quote }}
-            {{- if .Values.web.publicUrl }}
-            # OAuth callbacks come back to this address, so it has to match
-            # what is registered with the provider.
+            {{- $public := include "orchestr8.publicUrl" . }}
+            {{- if $public }}
+            # OAuth callbacks come back to this address and the provider
+            # compares them against what was registered, character for
+            # character. It has to be the external URL, not what the pod sees.
             - name: AUTH_URL
-              value: {{ .Values.web.publicUrl | quote }}
-            {{- end }}
-            # Behind an Ingress the app sees the internal address, so it has to
-            # be told the external one is legitimate.
+              value: {{ $public | quote }}
+            {{- else }}
+            # No external address configured, so the app has to work the URL
+            # out from the request. That means trusting the Host header, which
+            # a proxy in front of it can set to anything — and callback URLs
+            # are built from it. Fine behind a port-forward, wrong on anything
+            # a stranger can reach: set web.publicUrl or ingress.host and this
+            # disappears.
             - name: AUTH_TRUST_HOST
               value: "true"
+            {{- end }}
             - name: NODE_ENV
               value: production
           envFrom:

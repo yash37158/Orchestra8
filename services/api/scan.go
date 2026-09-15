@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -67,6 +69,23 @@ type ScanResult struct {
 
 var severityRank = map[string]int{"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "UNKNOWN": 4}
 
+// How long one scan may take. A lockfile needs seconds; a multi-gigabyte
+// container image the scanner has to pull can exceed this, and does.
+const scanTimeout = 4 * time.Minute
+
+// recordCtx is the context a scan's own bookkeeping runs on.
+//
+// Writing the result must not ride on the context that just died. When the cap
+// above fires — or the caller simply closes the tab — ctx is already cancelled,
+// so persist() and the audit append failed instantly and their errors were
+// dropped. A scan that timed out left no trace anywhere: not a row, not a
+// ledger entry, nothing. That is the exact failure Run's doc comment promises
+// cannot happen. WithoutCancel keeps the values, the organisation among them,
+// and drops only the deadline.
+func recordCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+}
+
 // Run executes a scan and persists it. A failure is recorded as a failed scan
 // with the reason, never as an empty result — "no findings" and "the scanner
 // could not run" must never look the same to the person reading the page.
@@ -83,7 +102,7 @@ func (s *scanner) Run(ctx context.Context, target, kind, actor string) (*ScanRes
 	if kind == "image" {
 		mode = "image"
 	}
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
 	defer cancel()
 
 	sbomPath := filepath.Join(os.TempDir(), id+"-sbom.json")
@@ -93,13 +112,27 @@ func (s *scanner) Run(ctx context.Context, target, kind, actor string) (*ScanRes
 	if err != nil {
 		res.Outcome = "failed"
 		res.Error = err.Error()
+		// Both of these surface as "signal: killed", which tells the reader
+		// nothing about why the scan stopped or whether to try again.
+		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			res.Error = fmt.Sprintf(
+				"the scan passed its %s limit. A multi-gigabyte image can take longer than that to pull.",
+				scanTimeout)
+		case errors.Is(ctx.Err(), context.Canceled):
+			res.Error = "the request was cancelled before the scan finished — the browser tab was closed or navigated away."
+		}
 		// Every failure path has to record the duration too. Without this a
 		// failed scan stores 0ms, and "the scanner died instantly" and "the
 		// scanner ground for four minutes and then died" read identically.
 		res.DurationMs = int(time.Since(started).Milliseconds())
-		_ = s.persist(ctx, res, "")
-		_, _ = s.audit.Append(ctx, actor, "scan.run", target, "", "failed",
-			map[string]any{"scanId": id, "error": err.Error()})
+		rec, done := recordCtx(ctx)
+		defer done()
+		if perr := s.persist(rec, res, ""); perr != nil {
+			log.Printf("scan %s failed and could not be recorded: %v", id, perr)
+		}
+		_, _ = s.audit.Append(rec, actor, "scan.run", target, "", "failed",
+			map[string]any{"scanId": id, "error": res.Error})
 		return res, nil
 	}
 
@@ -127,7 +160,11 @@ func (s *scanner) Run(ctx context.Context, target, kind, actor string) (*ScanRes
 		res.Outcome = "failed"
 		res.Error = "could not parse scanner output: " + err.Error()
 		res.DurationMs = int(time.Since(started).Milliseconds())
-		_ = s.persist(ctx, res, "")
+		rec, done := recordCtx(ctx)
+		defer done()
+		if perr := s.persist(rec, res, ""); perr != nil {
+			log.Printf("scan %s failed and could not be recorded: %v", id, perr)
+		}
 		return res, nil
 	}
 
@@ -178,10 +215,14 @@ func (s *scanner) Run(ctx context.Context, target, kind, actor string) (*ScanRes
 	}
 
 	res.DurationMs = int(time.Since(started).Milliseconds())
-	if err := s.persist(ctx, res, sbom); err != nil {
+	// Detached here too: the work is done and paid for, and a caller who closed
+	// the tab in the last second should not cost us the result.
+	rec, done := recordCtx(ctx)
+	defer done()
+	if err := s.persist(rec, res, sbom); err != nil {
 		return res, err
 	}
-	_, _ = s.audit.Append(ctx, actor, "scan.run", target, "", "allowed", map[string]any{
+	_, _ = s.audit.Append(rec, actor, "scan.run", target, "", "allowed", map[string]any{
 		"scanId": id, "critical": res.Critical, "high": res.High,
 		"findings": len(res.Findings), "sbomBytes": len(sbom),
 	})
@@ -296,7 +337,7 @@ FROM orchestr8.scans WHERE %s AND Target = %s AND Outcome = 'ok' ORDER BY At DES
 	r := rows[0]
 	return &scanSummary{ID: r.Id, At: isoFromCH(r.At), Target: r.Target,
 		Critical: r.Critical, High: r.High, Medium: r.Medium, Fixable: r.Fixable, Outcome: r.Outcome,
-			OsEosl: r.OsEosl == 1}, nil
+		OsEosl: r.OsEosl == 1}, nil
 }
 
 func listScans(ctx context.Context, c *chClient, org string, limit int) ([]scanSummary, error) {

@@ -1,12 +1,13 @@
 import Link from "next/link"
 import { AlertTriangle, ChevronRight, Cloud, Coins, Cpu, Gauge, ShieldCheck } from "lucide-react"
 import type {
-  ClusterDetail, Correlation, DashboardResponse, InferenceResponse, SeriesPoint,
+  ClusterDetail, Correlation, DashboardResponse, Headroom, InferenceResponse, SeriesPoint,
 } from "@orchestr8/contracts"
 
 import { ActivityFeed } from "@/components/activity-feed"
 import { FleetCost } from "@/components/fleet-cost"
 import { GpuFleet } from "@/components/gpu-fleet"
+import { HeadroomPanel } from "@/components/headroom-panel"
 import { InferenceServices } from "@/components/inference-services"
 import { Sparkline } from "@/components/sparkline"
 import { TelemetryStatus } from "@/components/telemetry-status"
@@ -101,12 +102,13 @@ function CorrelationCard({ c }: { c: Correlation }) {
   )
 }
 
-export function Dashboard({ data, inference, clusters, utilTrend, sloTrends }: {
+export function Dashboard({ data, inference, clusters, utilTrend, sloTrends, headroom }: {
   data: DashboardResponse
   inference: InferenceResponse | null
   clusters: ClusterDetail[]
   utilTrend: SeriesPoint[]
   sloTrends: Record<string, SeriesPoint[]>
+  headroom: Headroom[]
 }) {
   const { overview, activity, correlations } = data
 
@@ -238,6 +240,18 @@ export function Dashboard({ data, inference, clusters, utilTrend, sloTrends }: {
             <FleetCost clusters={clusters} />
           </section>
         </div>
+
+        {/* Directly under the fleet, because the question it answers is about
+            a specific card in the table above it. */}
+        <section className="rounded-md border bg-card">
+          <div className="flex items-baseline justify-between border-b px-4 py-3">
+            <h2 className="text-sm font-semibold tracking-tight">Headroom</h2>
+            <span className="text-xs text-muted-foreground">
+              measured from history, never extrapolated
+            </span>
+          </div>
+          <HeadroomPanel services={headroom} />
+        </section>
 
         <section className="rounded-md border bg-card">
           <div className="flex items-baseline justify-between border-b px-4 py-3">

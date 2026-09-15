@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { ScansResponse, ScanFinding, InferenceResponse, ConfigResponse, SeriesResponse, type SeriesPoint } from "@orchestr8/contracts"
+import { ScansResponse, ScanFinding, InferenceResponse, ConfigResponse, SeriesResponse, HeadroomResponse, type SeriesPoint } from "@orchestr8/contracts"
 import { API_URL, apiFetch, describeStatus, rethrowRedirect } from "@/lib/api/fetch"
 
 
@@ -36,6 +36,7 @@ async function get<T>(path: string, schema: z.ZodType<T>): Promise<Result<T>> {
 export const getScans = () => get("/v1/scans?limit=25", ScansResponse)
 export const getInference = () => get("/v1/inference", InferenceResponse)
 export const getConfig = () => get("/v1/config", ConfigResponse)
+export const getHeadroom = () => get("/v1/headroom", HeadroomResponse)
 export const getScanFindings = (id: string) =>
   get(`/v1/scans/${encodeURIComponent(id)}`, z.object({ id: z.string(), findings: z.array(ScanFinding).nullable() }))
 

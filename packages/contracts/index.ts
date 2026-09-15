@@ -358,6 +358,55 @@ export const DashboardResponse = z.object({
  * average, one GPU's temperature, or one model's interpolated p95. The caller
  * knows what it asked for; the wire format does not need to.
  */
+/**
+ * Capacity, read back out of history rather than predicted.
+ *
+ * Every point on the curve is a load level the service has actually run at and
+ * the latency it actually produced. Nothing is fitted or extrapolated, which is
+ * why several fields are nullable: outside the observed range there is no
+ * answer to give, and inventing one is not a service to whoever is deciding
+ * whether to pull a node out of production.
+ */
+export const CurvePoint = z.object({
+  reqPerMin: z.number().nonnegative(),
+  p95Ms: z.number().nonnegative(),
+  minutes: z.number().int().positive(),
+  withinSlo: z.boolean(),
+})
+
+export const DrainEstimate = z.object({
+  equivalentReqPerMin: z.number().nonnegative(),
+  p95Ms: z.number().nonnegative(),
+  withinSlo: z.boolean(),
+  /** False when the service has never run at that load. The figures above are then meaningless. */
+  observed: z.boolean(),
+  note: z.string(),
+})
+
+export const Headroom = z.object({
+  clusterId: z.string(),
+  model: z.string(),
+  sloMs: z.number().positive(),
+  gpuCount: z.number().int().nonnegative(),
+  currentReqPerMin: z.number().nonnegative(),
+  currentP95Ms: z.number().nonnegative(),
+  curve: z.array(CurvePoint),
+  // Highest load seen inside the target, and the lowest seen outside it.
+  // Either can be absent: a service may never have breached, or never have
+  // been observed comfortably.
+  safeUpToReqPerMin: z.number().nullable(),
+  breachesAtReqPerMin: z.number().nullable(),
+  headroomPct: z.number().nullable(),
+  drain: DrainEstimate,
+  /** False when history cannot support an answer. `basis` then says why. */
+  sufficient: z.boolean(),
+  basis: z.string(),
+})
+
+export const HeadroomResponse = z.object({
+  services: z.array(Headroom).nullable(),
+})
+
 export const SeriesPoint = z.object({
   t: Iso,
   v: z.number(),
@@ -393,6 +442,10 @@ export type ModelEconomics = z.infer<typeof ModelEconomics>
 export type Recommendation = z.infer<typeof Recommendation>
 export type InferenceResponse = z.infer<typeof InferenceResponse>
 export type ConfigResponse = z.infer<typeof ConfigResponse>
+export type CurvePoint = z.infer<typeof CurvePoint>
+export type DrainEstimate = z.infer<typeof DrainEstimate>
+export type Headroom = z.infer<typeof Headroom>
+export type HeadroomResponse = z.infer<typeof HeadroomResponse>
 export type SeriesPoint = z.infer<typeof SeriesPoint>
 export type SeriesResponse = z.infer<typeof SeriesResponse>
 export type OverviewResponse = z.infer<typeof OverviewResponse>

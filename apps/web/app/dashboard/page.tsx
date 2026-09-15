@@ -4,7 +4,7 @@ import { MainLayout } from "@/components/main-layout"
 import { Dashboard } from "@/components/dashboard"
 import { getDashboard } from "@/lib/api/dashboard"
 import { getClusters } from "@/lib/api/clusters"
-import { getInference, getSeries } from "@/lib/api/pages"
+import { getHeadroom, getInference, getSeries } from "@/lib/api/pages"
 
 // Server component: the fetch happens on the server, the contract is validated
 // there, and components receive data already known to be the right shape.
@@ -13,7 +13,9 @@ export const dynamic = "force-dynamic"
 
 export default async function DashboardPage() {
   // Three independent reads, one round of latency.
-  const [result, inference, clusters] = await Promise.all([getDashboard(), getInference(), getClusters()])
+  const [result, inference, clusters, headroom] = await Promise.all([
+    getDashboard(), getInference(), getClusters(), getHeadroom(),
+  ])
 
   // A second round, because the per-model trends cannot be requested until the
   // models are known. Worth the extra hop: a p95 without its own hour of
@@ -34,6 +36,7 @@ export default async function DashboardPage() {
           data={result.data}
           inference={inference.ok ? inference.data : null}
           clusters={clusters.ok ? clusters.data.clusters : []}
+          headroom={headroom.ok ? (headroom.data.services ?? []) : []}
           utilTrend={utilTrend}
           sloTrends={sloTrends}
         />

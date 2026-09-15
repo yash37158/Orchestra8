@@ -82,6 +82,7 @@ func main() {
 		handleDashboard(w, r, ch, slos, rates, aud)
 	})
 	mux.HandleFunc("/v1/inference", func(w http.ResponseWriter, r *http.Request) { handleInference(w, r, ch, slos, rates) })
+	mux.HandleFunc("/v1/headroom", func(w http.ResponseWriter, r *http.Request) { handleHeadroom(w, r, ch, slos) })
 	mux.HandleFunc("/v1/config", func(w http.ResponseWriter, r *http.Request) {
 		handleConfig(w, r, ch, slos, rates, ntf, env("ORCHESTR8_GITOPS_REPO", "../../.localdev/gitops"))
 	})

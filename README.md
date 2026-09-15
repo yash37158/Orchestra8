@@ -14,6 +14,17 @@ Orchestr8 reads your GPUs and your inference engines together and tells you whic
 
 ---
 
+<p align="center">
+  <img src="docs/media/demo.gif" alt="Orchestr8 walkthrough: the dashboard names a thermally throttling GPU, the verdict page shows the evidence behind it, headroom says whether the node can be drained, and the security page stores every scan." width="900">
+</p>
+
+<p align="center">
+  <em>A GPU starts throttling. The dashboard names the cause, the verdict shows the evidence, and headroom says whether you can afford to drain the node.</em><br>
+  <sub><a href="docs/media/demo.mp4">Download as MP4</a> · recorded against the running stack, no mock data</sub>
+</p>
+
+---
+
 ## The problem
 
 Two incidents. Identical symptom — p95 time-to-first-token breaches its SLO. Identical alert.
@@ -42,6 +53,12 @@ A latency dashboard shows you the same red number for both, and the on-call engi
 **Correlates, rather than charts.** Five rules run over every organisation's telemetry on a rolling window — thermal throttle, GPU memory pressure, KV cache saturation, XID hardware faults, and traffic surge. A verdict names the symptom, the cause, a confidence, and the evidence for each — including what it *ruled out*. "Request rate is flat (336/min against a 343/min baseline, −2%) — load did not cause this" is a line the engine writes, because the negative is what makes the positive trustworthy.
 
 An empty incident list means no cause was **provable**, not that nothing is wrong. The product says so on the page.
+
+<p align="center">
+  <img src="docs/media/dashboard.png" alt="The Orchestr8 dashboard: fleet KPIs, then two correlated incidents — one naming a thermally throttling GPU with 97% confidence, one admitting no known cause matches and that it needs a human." width="900">
+</p>
+
+The second card in that screenshot is the one worth looking at: *"none of the known causes match. This needs a human."* Five rules cannot explain everything, and a tool that invents a sixth explanation to fill the space is worse than one that says it does not know.
 
 **Headroom, measured — never extrapolated.** How much more load each service has absorbed before missing its target, and what it costs to lose one GPU. Built entirely from history already in the store: `Losing one of 2 GPUs leaves 669 req/min on each remaining card. This service has run at that load and served 2,512 ms p95, against a 1,200 ms target.` → **DO NOT DRAIN**. Where history has never covered a load level, it refuses to answer rather than guessing — someone is deciding whether to pull a card out of production on the strength of it.
 

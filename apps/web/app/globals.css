@@ -135,6 +135,35 @@
     background-size: 100% 100%, 64px 64px, 64px 64px;
   }
 
+  /* Scroll reveal.
+     *
+     * Driven by the scroll position itself rather than by JavaScript, so there
+     * is no observer, no hydration wait, and nothing to go wrong between the
+     * markup arriving and the text being legible.
+     *
+     * The guards are the important part. A reveal that starts at opacity zero
+     * and waits for a script is a page that stays blank when the script fails,
+     * is blocked, or has not run yet — the text must be visible by default and
+     * animated only where that is provably safe. Both conditions below have to
+     * hold before anything is hidden: the browser must support scroll-driven
+     * animation, and the visitor must not have asked for less motion.
+     *
+     * Elements already on screen at load sit at the end of their range, so the
+     * hero is never animated into view behind a fold that is not there. */
+  .reveal {
+    /* Deliberately empty by default: no animation, nothing hidden. */
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: view()) {
+      .reveal {
+        animation: reveal-rise linear both;
+        animation-timeline: view();
+        animation-range: entry 5% cover 26%;
+      }
+    }
+  }
+
   /* Masks the grid out towards the edges so it never becomes a pattern in its
      own right. */
   .hero-fade {
@@ -153,4 +182,18 @@
   .state-rail-ok   { box-shadow: inset 2px 0 0 0 hsl(var(--ok)); }
   .state-rail-warn { box-shadow: inset 2px 0 0 0 hsl(var(--warn)); }
   .state-rail-crit { box-shadow: inset 2px 0 0 0 hsl(var(--crit)); }
+}
+
+/* Short and flat. A long or eased entrance reads as a website performing
+   rather than a page arriving — eight pixels and a fade is enough to give the
+   eye somewhere to land. */
+@keyframes reveal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }

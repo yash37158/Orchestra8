@@ -119,13 +119,13 @@ function Distinction() {
   return (
     <section className="border-b bg-card/25 py-20">
       <div className="mx-auto w-full max-w-[1120px] px-6">
-        <h2 className="display text-[26px] font-semibold sm:text-[30px]">Same symptom. Opposite fix.</h2>
+        <h2 className="reveal display text-[26px] font-semibold sm:text-[30px]">Same symptom. Opposite fix.</h2>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
           Two incidents. Identical latency, identical SLO breach, identical alert. A dashboard that
           stops at the first row sends you to argue with the wrong team.
         </p>
 
-        <div className="mt-7 grid gap-4 md:grid-cols-2">
+        <div className="reveal mt-9 grid gap-4 md:grid-cols-2">
           {cases.map((c) => (
             <div
               key={c.verdict}
@@ -229,8 +229,8 @@ export default function Home() {
 
         <section id="how" className="border-b py-20">
           <div className="mx-auto w-full max-w-[1120px] px-6">
-            <h2 className="display text-[26px] font-semibold sm:text-[30px]">How it works</h2>
-            <div className="mt-7 grid gap-8 md:grid-cols-3">
+            <h2 className="reveal display text-[26px] font-semibold sm:text-[30px]">How it works</h2>
+            <div className="reveal mt-9 grid gap-8 md:grid-cols-3">
               {[
                 {
                   n: "01",
@@ -256,7 +256,7 @@ export default function Home() {
               ))}
             </div>
 
-            <div className="mt-12 overflow-hidden rounded-lg border bg-card shadow-[0_1px_2px_hsl(0_0%_0%/0.4)]">
+            <div className="reveal mt-12 overflow-hidden rounded-lg border bg-card shadow-[0_1px_2px_hsl(0_0%_0%/0.4)]">
               <div className="flex items-center gap-2 border-b bg-background/40 px-5 py-2.5">
                 <span className="h-2 w-2 rounded-full bg-ok/60" />
                 <span className="font-mono text-[11px] text-muted-foreground">connect a cluster</span>
@@ -278,8 +278,8 @@ export default function Home() {
 
         <section id="capabilities" className="border-b bg-card/25 py-20">
           <div className="mx-auto w-full max-w-[1120px] px-6">
-            <h2 className="display text-[26px] font-semibold sm:text-[30px]">Capabilities</h2>
-            <div className="mt-7 grid gap-x-10 gap-y-7 sm:grid-cols-2 lg:grid-cols-3">
+            <h2 className="reveal display text-[26px] font-semibold sm:text-[30px]">Capabilities</h2>
+            <div className="reveal mt-9 grid gap-x-10 gap-y-7 sm:grid-cols-2 lg:grid-cols-3">
               {CAPABILITIES.map((c) => (
                 <div key={c.title}>
                   <h3 className="text-sm font-semibold tracking-tight">{c.title}</h3>
@@ -295,9 +295,9 @@ export default function Home() {
             and the boundary here is genuinely sharp: no GPUs, no causes to
             correlate to. */}
         <section className="border-b py-20">
-          <div className="mx-auto grid w-full max-w-[1120px] gap-12 px-6 md:grid-cols-2">
+          <div className="reveal mx-auto grid w-full max-w-[1120px] gap-12 px-6 md:grid-cols-2">
             <div>
-              <h2 className="display text-[26px] font-semibold sm:text-[30px]">Built for</h2>
+              <h2 className="reveal display text-[26px] font-semibold sm:text-[30px]">Built for</h2>
               <ul className="mt-6 space-y-3 text-[13.5px] leading-[1.7] text-muted-foreground">
                 <li className="border-l-2 border-ok/60 pl-4">
                   Teams serving their own models on their own GPUs, on Kubernetes

@@ -114,6 +114,34 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Headlines set tight and optically aligned. A display face at 60px with
+     default tracking reads as loose; at this size the gaps between letters are
+     what the eye notices before the words. */
+  .display {
+    font-family: var(--font-display), var(--font-sans), sans-serif;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+
+  /* One faint light source behind the hero, and a hairline grid under it.
+     Both are nearly invisible on purpose: enough to stop a very dark page
+     reading as a flat rectangle, far short of the coloured glow that makes a
+     product page look like every other product page. */
+  .hero-ground {
+    background-image:
+      radial-gradient(60rem 30rem at 18% -10%, hsl(var(--primary) / 0.07), transparent 60%),
+      linear-gradient(to right, hsl(var(--border) / 0.5) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.5) 1px, transparent 1px);
+    background-size: 100% 100%, 64px 64px, 64px 64px;
+  }
+
+  /* Masks the grid out towards the edges so it never becomes a pattern in its
+     own right. */
+  .hero-fade {
+    mask-image: radial-gradient(70rem 40rem at 20% 0%, black, transparent 75%);
+    -webkit-mask-image: radial-gradient(70rem 40rem at 20% 0%, black, transparent 75%);
+  }
+
   h1, h2, h3 {
     letter-spacing: -0.014em;
   }

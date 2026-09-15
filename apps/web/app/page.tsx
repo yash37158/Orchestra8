@@ -56,23 +56,23 @@ const CAPABILITIES = [
 function Nav() {
   return (
     <header className="sticky top-0 z-50 border-b bg-background/85 backdrop-blur">
-      <div className="mx-auto flex h-14 w-full max-w-[1100px] items-center justify-between px-6">
+      <div className="mx-auto flex h-16 w-full max-w-[1120px] items-center justify-between px-6">
         <div className="flex items-center gap-2.5">
-          <div className="grid h-6 w-6 place-items-center rounded bg-primary text-[11px] font-bold text-primary-foreground">
+          <div className="grid h-7 w-7 place-items-center rounded-[5px] bg-primary font-mono text-[12px] font-bold text-primary-foreground">
             O
           </div>
-          <span className="text-sm font-semibold tracking-tight">Orchestr8</span>
+          <span className="display text-[15px] font-semibold">Orchestr8</span>
         </div>
-        <nav className="flex items-center gap-6">
-          <Link href="#how" className="hidden text-xs text-muted-foreground transition-colors hover:text-foreground sm:block">
+        <nav className="flex items-center gap-7">
+          <Link href="#how" className="hidden text-[13px] text-muted-foreground transition-colors hover:text-foreground sm:block">
             How it works
           </Link>
-          <Link href="#capabilities" className="hidden text-xs text-muted-foreground transition-colors hover:text-foreground sm:block">
+          <Link href="#capabilities" className="hidden text-[13px] text-muted-foreground transition-colors hover:text-foreground sm:block">
             Capabilities
           </Link>
           <Link
             href="/signin"
-            className="rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:border-foreground/25"
+            className="rounded-md border px-3.5 py-1.5 text-[13px] font-medium transition-colors hover:border-foreground/25 hover:bg-secondary/60"
           >
             Sign in
           </Link>
@@ -117,9 +117,9 @@ function Distinction() {
   ]
 
   return (
-    <section className="border-t bg-muted/20 py-16">
-      <div className="mx-auto w-full max-w-[1100px] px-6 ">
-        <h2 className="text-xl font-semibold tracking-tight">Same symptom. Opposite fix.</h2>
+    <section className="border-b bg-card/25 py-20">
+      <div className="mx-auto w-full max-w-[1120px] px-6">
+        <h2 className="display text-[26px] font-semibold sm:text-[30px]">Same symptom. Opposite fix.</h2>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
           Two incidents. Identical latency, identical SLO breach, identical alert. A dashboard that
           stops at the first row sends you to argue with the wrong team.
@@ -129,18 +129,30 @@ function Distinction() {
           {cases.map((c) => (
             <div
               key={c.verdict}
-              className={`rounded-md border bg-card ${
+              className={`overflow-hidden rounded-lg border bg-card shadow-[0_1px_2px_hsl(0_0%_0%/0.4)] ${
                 c.tone === "crit" ? "state-rail-crit" : "state-rail-warn"
               }`}
             >
-              <table className="w-full text-[13px]">
+              <div className="flex items-center justify-between border-b bg-background/40 px-5 py-2.5">
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {c.tone === "crit" ? "incident A" : "incident B"}
+                </span>
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.07em] ${
+                    c.tone === "crit" ? "bg-crit/15 text-crit" : "bg-warn/15 text-warn"
+                  }`}
+                >
+                  SLO breached
+                </span>
+              </div>
+              <table className="w-full text-[13.5px]">
                 <tbody>
                   {c.rows.map(([label, value, state]) => (
-                    <tr key={label} className="border-b border-border/50">
-                      <td className="px-4 py-2.5 text-muted-foreground">{label}</td>
+                    <tr key={label} className="border-b border-border/40">
+                      <td className="px-5 py-3 text-muted-foreground">{label}</td>
                       <td
-                        className={`tnum px-4 py-2.5 text-right font-medium ${
-                          state === "over" ? "text-crit" : ""
+                        className={`tnum px-5 py-3 text-right font-mono ${
+                          state === "over" ? "font-medium text-crit" : "text-foreground/80"
                         }`}
                       >
                         {value}
@@ -149,12 +161,12 @@ function Distinction() {
                   ))}
                 </tbody>
               </table>
-              <div className="px-4 py-3.5">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              <div className="bg-background/30 px-5 py-4">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
                   Cause
                 </div>
-                <div className="mt-1 font-mono text-[13px]">{c.verdict}</div>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{c.action}</p>
+                <div className="mt-1.5 font-mono text-[14px] text-foreground">{c.verdict}</div>
+                <p className="mt-2.5 text-[13px] leading-relaxed text-muted-foreground">{c.action}</p>
               </div>
             </div>
           ))}
@@ -170,43 +182,54 @@ export default function Home() {
       <Nav />
 
       <main className="flex-1">
-        <section className="mx-auto w-full max-w-[1100px] px-6 py-20">
-          <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
-            GPU and inference observability
-          </p>
-          <h1 className="mt-4 max-w-3xl text-[34px] font-semibold leading-[1.15] tracking-tight sm:text-[42px]">
-            Inference is slow. Is it the model, the traffic, or the silicon?
-          </h1>
-          <p className="mt-5 max-w-2xl text-[15px] leading-relaxed text-muted-foreground">
-            Orchestr8 reads your GPUs and your inference engines together and tells you which one,
-            with the measurements behind it. Every other tool tells you latency is high.
-          </p>
+        <section className="relative isolate border-b">
+          <div className="hero-ground hero-fade absolute inset-0 -z-10" aria-hidden="true" />
+          <div className="mx-auto w-full max-w-[1120px] px-6 pb-24 pt-24 sm:pt-28">
+            <div className="inline-flex items-center gap-2 rounded-full border bg-card/60 py-1 pl-1.5 pr-3">
+              <span className="rounded-full bg-primary/15 px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-primary">
+                DCGM + vLLM
+              </span>
+              <span className="text-[11px] text-muted-foreground">Correlated, not just collected</span>
+            </div>
 
-          <div className="mt-8 flex flex-wrap items-center gap-3">
-            <Link
-              href="/signin"
-              className="rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-            >
-              Get started
-            </Link>
-            <Link
-              href="#how"
-              className="rounded-md border px-4 py-2.5 text-sm font-medium transition-colors hover:border-foreground/25"
-            >
-              How it works
-            </Link>
+            <h1 className="display mt-7 max-w-4xl text-[40px] font-semibold leading-[1.06] sm:text-[58px] lg:text-[64px]">
+              Inference is slow.
+              <br className="hidden sm:block" />{" "}
+              <span className="text-muted-foreground">Is it the model, the traffic,</span>{" "}
+              or the silicon?
+            </h1>
+
+            <p className="mt-7 max-w-[34rem] text-[16px] leading-[1.7] text-muted-foreground">
+              Orchestr8 reads your GPUs and your inference engines together and tells you which one,
+              with the measurements behind it. Every other tool tells you latency is high.
+            </p>
+
+            <div className="mt-9 flex flex-wrap items-center gap-3">
+              <Link
+                href="/signin"
+                className="rounded-md bg-primary px-5 py-2.5 text-[14px] font-medium text-primary-foreground shadow-[0_1px_0_0_hsl(0_0%_100%/0.12)_inset] transition-opacity hover:opacity-90"
+              >
+                Get started
+              </Link>
+              <Link
+                href="#how"
+                className="rounded-md border bg-card/60 px-5 py-2.5 text-[14px] font-medium transition-colors hover:border-foreground/25 hover:bg-secondary/60"
+              >
+                How it works
+              </Link>
+            </div>
+
+            <p className="mt-7 text-[13px] text-muted-foreground">
+              Self-hosted or hosted. Your telemetry never leaves your organisation.
+            </p>
           </div>
-
-          <p className="mt-6 text-xs text-muted-foreground">
-            Self-hosted or hosted. Your telemetry never leaves your organisation.
-          </p>
         </section>
 
         <Distinction />
 
-        <section id="how" className="border-t py-16">
-          <div className="mx-auto w-full max-w-[1100px] px-6 ">
-            <h2 className="text-xl font-semibold tracking-tight">How it works</h2>
+        <section id="how" className="border-b py-20">
+          <div className="mx-auto w-full max-w-[1120px] px-6">
+            <h2 className="display text-[26px] font-semibold sm:text-[30px]">How it works</h2>
             <div className="mt-7 grid gap-8 md:grid-cols-3">
               {[
                 {
@@ -225,26 +248,27 @@ export default function Home() {
                   b: "Every thirty seconds it compares the two against your latency target, and when it can evidence both a symptom and a cause it says so — and pages once per incident, not once per hypothesis.",
                 },
               ].map((s) => (
-                <div key={s.n}>
-                  <div className="tnum text-[11px] font-semibold text-primary">{s.n}</div>
-                  <h3 className="mt-2 text-sm font-semibold tracking-tight">{s.t}</h3>
-                  <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">{s.b}</p>
+                <div key={s.n} className="border-t pt-5">
+                  <div className="font-mono text-[12px] font-medium text-primary">{s.n}</div>
+                  <h3 className="mt-2.5 text-[15px] font-semibold tracking-tight">{s.t}</h3>
+                  <p className="mt-2.5 text-[13.5px] leading-[1.7] text-muted-foreground">{s.b}</p>
                 </div>
               ))}
             </div>
 
-            <div className="mt-10 rounded-md border bg-card p-4">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                Connect a cluster
+            <div className="mt-12 overflow-hidden rounded-lg border bg-card shadow-[0_1px_2px_hsl(0_0%_0%/0.4)]">
+              <div className="flex items-center gap-2 border-b bg-background/40 px-5 py-2.5">
+                <span className="h-2 w-2 rounded-full bg-ok/60" />
+                <span className="font-mono text-[11px] text-muted-foreground">connect a cluster</span>
               </div>
-              <pre className="mt-2.5 overflow-x-auto text-[12px] leading-relaxed">
-                <code className="font-mono">{`helm install orchestr8 orchestr8/collector \\
+              <pre className="overflow-x-auto px-5 py-4 text-[12.5px] leading-[1.75]">
+                <code className="font-mono text-foreground/85">{`helm install orchestr8 orchestr8/collector \\
   --namespace orchestr8 --create-namespace \\
   --set clusterId=prod-us-east \\
   --set endpoint=https://ingest.your-orchestr8/ \\
   --set token=$ORCHESTR8_TOKEN`}</code>
               </pre>
-              <p className="mt-3 text-xs text-muted-foreground">
+              <p className="border-t bg-background/30 px-5 py-3 text-[12.5px] text-muted-foreground">
                 The onboarding screen generates this with a token already in it. First GPU reading
                 usually lands within a minute.
               </p>
@@ -252,9 +276,9 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="capabilities" className="border-t bg-muted/20 py-16">
-          <div className="mx-auto w-full max-w-[1100px] px-6 ">
-            <h2 className="text-xl font-semibold tracking-tight">Capabilities</h2>
+        <section id="capabilities" className="border-b bg-card/25 py-20">
+          <div className="mx-auto w-full max-w-[1120px] px-6">
+            <h2 className="display text-[26px] font-semibold sm:text-[30px]">Capabilities</h2>
             <div className="mt-7 grid gap-x-10 gap-y-7 sm:grid-cols-2 lg:grid-cols-3">
               {CAPABILITIES.map((c) => (
                 <div key={c.title}>
@@ -270,35 +294,37 @@ export default function Home() {
             on day three costs far more than one who leaves on the landing page,
             and the boundary here is genuinely sharp: no GPUs, no causes to
             correlate to. */}
-        <section className="border-t py-16">
-          <div className="mx-auto w-full max-w-[1100px] px-6 grid gap-10 md:grid-cols-2">
+        <section className="border-b py-20">
+          <div className="mx-auto grid w-full max-w-[1120px] gap-12 px-6 md:grid-cols-2">
             <div>
-              <h2 className="text-xl font-semibold tracking-tight">Built for</h2>
-              <ul className="mt-4 space-y-2.5 text-[13px] leading-relaxed text-muted-foreground">
-                <li className="border-l-2 border-ok/50 pl-3">
+              <h2 className="display text-[26px] font-semibold sm:text-[30px]">Built for</h2>
+              <ul className="mt-6 space-y-3 text-[13.5px] leading-[1.7] text-muted-foreground">
+                <li className="border-l-2 border-ok/60 pl-4">
                   Teams serving their own models on their own GPUs, on Kubernetes
                 </li>
-                <li className="border-l-2 border-ok/50 pl-3">
+                <li className="border-l-2 border-ok/60 pl-4">
                   Latency-sensitive inference — chat, search, embeddings on a hot path
                 </li>
-                <li className="border-l-2 border-ok/50 pl-3">
+                <li className="border-l-2 border-ok/60 pl-4">
                   Fleets large enough that nobody can hold them in their head, roughly eight GPUs up
                 </li>
-                <li className="border-l-2 border-ok/50 pl-3">
+                <li className="border-l-2 border-ok/60 pl-4">
                   Regulated environments that cannot send telemetry out — it runs entirely in your cluster
                 </li>
               </ul>
             </div>
             <div>
-              <h2 className="text-xl font-semibold tracking-tight">Not built for</h2>
-              <ul className="mt-4 space-y-2.5 text-[13px] leading-relaxed text-muted-foreground">
-                <li className="border-l-2 border-border pl-3">
+              <h2 className="display text-[26px] font-semibold text-muted-foreground/70 sm:text-[30px]">
+                Not built for
+              </h2>
+              <ul className="mt-6 space-y-3 text-[13.5px] leading-[1.7] text-muted-foreground/75">
+                <li className="border-l-2 border-border pl-4">
                   Calling a model API. Without hardware there is no cause to correlate a symptom to.
                 </li>
-                <li className="border-l-2 border-border pl-3">
+                <li className="border-l-2 border-border pl-4">
                   Training and fine-tuning runs. Those turn on job completion, not latency targets.
                 </li>
-                <li className="border-l-2 border-border pl-3">
+                <li className="border-l-2 border-border pl-4">
                   One or two cards. An engineer can hold that fleet in their head, and Grafana is free.
                 </li>
               </ul>
@@ -306,9 +332,14 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="border-t py-16">
-          <div className="mx-auto w-full max-w-[1100px] px-6 ">
-            <h2 className="text-xl font-semibold tracking-tight">Start with one cluster</h2>
+        {/* Bookends the hero: same faint light, same grid, so the page closes
+            where it opened rather than trailing off. */}
+        <section className="relative isolate border-b py-24">
+          <div className="hero-ground hero-fade absolute inset-0 -z-10" aria-hidden="true" />
+          <div className="mx-auto w-full max-w-[1120px] px-6">
+            <h2 className="display text-[30px] font-semibold leading-[1.15] sm:text-[38px]">
+              Start with one cluster.
+            </h2>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
               Connect it, set one latency target, and wait for something to go wrong. That is the
               only honest way to find out whether the engine is right about your fleet.
@@ -323,12 +354,17 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className="border-t py-8">
-        <div className="container flex max-w-[1100px] flex-wrap items-center justify-between gap-4">
-          <span className="text-xs text-muted-foreground">
-            Orchestr8 — GPU and inference observability
-          </span>
-          <Link href="/signin" className="text-xs text-muted-foreground transition-colors hover:text-foreground">
+      <footer className="py-10">
+        <div className="mx-auto flex w-full max-w-[1120px] flex-wrap items-center justify-between gap-4 px-6">
+          <div className="flex items-center gap-2.5">
+            <div className="grid h-5 w-5 place-items-center rounded-[4px] bg-muted font-mono text-[10px] font-bold text-muted-foreground">
+              O
+            </div>
+            <span className="text-[13px] text-muted-foreground">
+              Orchestr8 — GPU and inference observability
+            </span>
+          </div>
+          <Link href="/signin" className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
             Sign in
           </Link>
         </div>

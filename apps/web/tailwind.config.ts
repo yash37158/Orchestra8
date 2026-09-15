@@ -12,6 +12,12 @@ const config: Config = {
   ],
   theme: {
   	extend: {
+  		// Tailwind's `container` ships with zero padding, so every page in this
+  		// app ran its panels flush into the window edge — borders clipped, table
+  		// columns cut mid-value — on any window where the content hit the
+  		// viewport. Not centred: a console should flow from the sidebar, not
+  		// float in the middle of a wide monitor.
+  		container: { padding: '1.5rem' },
   		fontFamily: {
   			sans: ['var(--font-sans)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
   			display: ['var(--font-display)', 'var(--font-sans)', 'ui-sans-serif', 'sans-serif'],

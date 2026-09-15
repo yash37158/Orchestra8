@@ -1,3 +1,8 @@
+/** Pinned locale so server and client agree, and no seconds: this label sits
+ *  under a live chart and a ticking third digit reflows it every second. */
+const hhmm = (iso: string) =>
+  new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+
 /**
  * Inline SVG sparkline. No chart library: this draws one polyline from at most
  * a few dozen points, and pulling in a charting dependency for that would cost
@@ -55,13 +60,13 @@ export function Sparkline({
         <path d={path} fill="none" strokeWidth="1.5" vectorEffect="non-scaling-stroke"
               stroke="currentColor" className={breached ? "text-warn" : "text-chart-1"} />
       </svg>
-      {labels && <div className="flex justify-between text-[10px] text-muted-foreground">
-        <span>{new Date(points[0].t).toLocaleTimeString()}</span>
+      {labels && <div className="tnum flex justify-between text-[10px] text-muted-foreground">
+        <span>{hhmm(points[0].t)}</span>
         <span className="font-mono">
           {values[0].toFixed(0)}{unit} → {values[values.length - 1].toFixed(0)}{unit}
           {threshold !== undefined && <span className="ml-2 text-crit/80">target {threshold}{unit}</span>}
         </span>
-        <span>{new Date(points[points.length - 1].t).toLocaleTimeString()}</span>
+        <span>{hhmm(points[points.length - 1].t)}</span>
       </div>}
     </div>
   )

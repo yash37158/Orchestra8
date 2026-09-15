@@ -130,6 +130,7 @@ export function SecurityScan() {
   const [customKind, setCustomKind] = useState<"filesystem" | "image">("image")
   const [targets, setTargets] = useState<ScanTarget[] | null>(null)
   const [targetsError, setTargetsError] = useState<string | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const running = run?.status === "running"
 
@@ -167,6 +168,7 @@ export function SecurityScan() {
 
   const start = async (label: string, target: string, kind: "filesystem" | "image") => {
     if (!target.trim()) return
+    setMenuOpen(false)
     setError(null)
     setOpen(true)
     // Shown immediately so the drawer is never blank while the request is in
@@ -190,7 +192,17 @@ export function SecurityScan() {
 
   return (
     <>
-      <DropdownMenu onOpenChange={(o) => o && loadTargets()}>
+      {/* modal={false} for the same reason as the sheet: a modal dropdown
+        * also pins pointer-events:none on the body, so leaving the sheet
+        * non-modal while this stayed modal fixed nothing. */}
+      <DropdownMenu
+        modal={false}
+        open={menuOpen}
+        onOpenChange={(o) => {
+          setMenuOpen(o)
+          if (o) loadTargets()
+        }}
+      >
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" disabled={!!running}>
             {running ? (
@@ -283,8 +295,21 @@ export function SecurityScan() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-[42rem]">
+      {/* Deliberately not modal.
+        *
+        * A scan of a model image runs for minutes, and a modal sheet sets
+        * pointer-events:none on the body and locks scrolling for as long as it
+        * is open — so starting a scan froze the whole dashboard behind it. The
+        * panel reports on work happening on the server; it has no claim on the
+        * rest of the page. Escape and the close button still dismiss it, and an
+        * outside click deliberately does not, so a stray click on the page
+        * behind cannot throw away a result that took ten minutes to get. */}
+      <Sheet open={open} onOpenChange={setOpen} modal={false}>
+        <SheetContent
+          overlay={false}
+          onInteractOutside={(e) => e.preventDefault()}
+          className="flex w-full flex-col gap-0 border-l p-0 shadow-2xl sm:max-w-[42rem]"
+        >
           <SheetHeader className="space-y-1 border-b px-6 py-4 text-left">
             <SheetTitle className="text-base">Security scan</SheetTitle>
             <SheetDescription className="font-mono text-[11px]">

@@ -51,12 +51,23 @@ const sheetVariants = cva(
 
 interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
-    VariantProps<typeof sheetVariants> {}
+    VariantProps<typeof sheetVariants> {
+  /**
+   * Draw the dimming layer behind the sheet. On by default, which is right for
+   * a sheet that wants an answer before anything else happens.
+   *
+   * Turn it off together with `modal={false}` on the Root for a panel that
+   * reports on work happening elsewhere. The overlay is `fixed inset-0`, so it
+   * swallows every click on the page underneath whether or not the dialog is
+   * modal — leaving it on is enough to freeze the app on its own.
+   */
+  overlay?: boolean
+}
 
 const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Content>, SheetContentProps>(
-  ({ side = "right", className, children, ...props }, ref) => (
+  ({ side = "right", className, children, overlay = true, ...props }, ref) => (
     <SheetPortal>
-      <SheetOverlay />
+      {overlay && <SheetOverlay />}
       <SheetPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
         {children}
         <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">

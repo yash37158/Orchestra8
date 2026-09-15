@@ -2,13 +2,24 @@
 
 import { revalidatePath } from "next/cache"
 
-import { getScanTargets, runScan, type ScanInput, type ScanOutcome } from "@/lib/api/scans"
+import {
+  getScanTargets,
+  pollScan,
+  startScan,
+  type PollOutcome,
+  type ScanInput,
+  type StartOutcome,
+} from "@/lib/api/scans"
 
-export async function runScanAction(input: ScanInput): Promise<ScanOutcome> {
-  const result = await runScan(input)
-  if (result.ok) {
-    // The API stores every run, failures included. Revalidating is what makes
-    // the stored history show up without a manual reload.
+export async function startScanAction(input: ScanInput): Promise<StartOutcome> {
+  return startScan(input)
+}
+
+export async function pollScanAction(id: string): Promise<PollOutcome> {
+  const result = await pollScan(id)
+  // Revalidate once the scan has actually landed, so the stored history and
+  // the ledger show it without a manual reload.
+  if (result.ok && result.progress.status !== "running") {
     revalidatePath("/security")
     revalidatePath("/audit")
   }

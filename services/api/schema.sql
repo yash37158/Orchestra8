@@ -197,3 +197,8 @@ TTL toDateTime(At) + INTERVAL 13 MONTH;
 ALTER TABLE orchestr8.scans ADD COLUMN IF NOT EXISTS OsFamily LowCardinality(String) DEFAULT '';
 ALTER TABLE orchestr8.scans ADD COLUMN IF NOT EXISTS OsName String DEFAULT '';
 ALTER TABLE orchestr8.scans ADD COLUMN IF NOT EXISTS OsEosl UInt8 DEFAULT 0;
+
+-- The failure reason lived only in the audit ledger, which is the wrong place
+-- to read it from: a scan is polled by id, and a poll that can say "failed"
+-- but not why sends the reader back to a spinner with no explanation.
+ALTER TABLE orchestr8.scans ADD COLUMN IF NOT EXISTS Error String DEFAULT '';

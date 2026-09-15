@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Phase 3 write paths: deployments, scans and the audit ledger.
@@ -125,12 +126,12 @@ func handleScans(w http.ResponseWriter, r *http.Request, s *scanner) {
 		if req.Kind == "" {
 			req.Kind = "filesystem"
 		}
-		res, err := s.Run(r.Context(), req.Target, req.Kind, actorOf(r, "operator"))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, res)
+		// Accepted, not done. The result is fetched from /v1/scans/{id}.
+		id := s.Start(r.Context(), req.Target, req.Kind, actorOf(r, "operator"))
+		w.WriteHeader(http.StatusAccepted)
+		writeJSON(w, map[string]any{
+			"id": id, "status": "running", "target": req.Target, "kind": req.Kind,
+		})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -255,12 +256,45 @@ func handleScan(w http.ResponseWriter, r *http.Request, s *scanner, d *deployer)
 		return
 	}
 
-	fs, err := scanFindings(r.Context(), s.ch, orgFromRequest(r), id)
+	org := orgFromRequest(r)
+
+	// Still working. Answered before the store is consulted, because the row
+	// does not exist until the scan finishes.
+	if f, ok := s.inFlightFor(org, id); ok {
+		writeJSON(w, map[string]any{
+			"id": id, "status": "running", "target": f.Target,
+			"elapsedMs": int(time.Since(f.Started).Milliseconds()),
+			"findings":  []Finding{},
+		})
+		return
+	}
+
+	sum, err := scanByID(r.Context(), s.ch, org, id)
+	if err != nil {
+		http.Error(w, "could not read the scan", http.StatusInternalServerError)
+		return
+	}
+	if sum == nil {
+		// Not running here and never stored. Either the id is wrong, or the
+		// process that was running it restarted — and saying so beats a
+		// spinner that never stops.
+		http.Error(w, "no such scan — if one was running, the server restarted before it finished",
+			http.StatusNotFound)
+		return
+	}
+
+	fs, err := scanFindings(r.Context(), s.ch, org, id)
 	if err != nil {
 		http.Error(w, "could not read findings", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"id": id, "findings": fs})
+	writeJSON(w, map[string]any{
+		"id": id, "status": sum.Outcome, "target": sum.Target, "at": sum.At,
+		"critical": sum.Critical, "high": sum.High, "medium": sum.Medium, "low": sum.Low,
+		"fixable": sum.Fixable, "durationMs": sum.DurationMs, "scanner": "trivy",
+		"osEosl": sum.OsEosl, "osName": sum.OsName, "error": sum.Error,
+		"findings": fs,
+	})
 }
 
 // bestFix picks the upgrade to recommend when an advisory lists fixes across

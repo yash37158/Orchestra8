@@ -21,8 +21,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { getScanTargetsAction, runScanAction } from "@/app/scan-actions"
-import type { ScanFinding, ScanRun, ScanTarget } from "@orchestr8/contracts"
+import { getScanTargetsAction, pollScanAction, startScanAction } from "@/app/scan-actions"
+import type { ScanFinding, ScanProgress, ScanTarget } from "@orchestr8/contracts"
 
 /**
  * Runs a real Trivy scan through the API and shows what it stored.
@@ -41,6 +41,8 @@ import type { ScanFinding, ScanRun, ScanTarget } from "@orchestr8/contracts"
 // Trivy caches its advisory database, so a repeat scan finishes in under a
 // second. Fixed at one decimal that renders as "0.0s", which reads as though
 // nothing ran.
+const secs = (ms?: number) => Math.round((ms ?? 0) / 1000)
+
 const took = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`)
 
 const SEV_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
@@ -121,16 +123,15 @@ function Finding({ f }: { f: ScanFinding }) {
 }
 
 export function SecurityScan() {
-  const [running, setRunning] = useState<{ label: string; target: string } | null>(null)
-  const [elapsed, setElapsed] = useState(0)
   const [open, setOpen] = useState(false)
-  const [run, setRun] = useState<ScanRun | null>(null)
+  const [run, setRun] = useState<ScanProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [custom, setCustom] = useState("")
   const [customKind, setCustomKind] = useState<"filesystem" | "image">("image")
   const [targets, setTargets] = useState<ScanTarget[] | null>(null)
   const [targetsError, setTargetsError] = useState<string | null>(null)
-  const started = useRef(0)
+
+  const running = run?.status === "running"
 
   // Loaded when the menu is first opened rather than on mount: this component
   // sits in the nav on every page, and the list is only ever read here.
@@ -141,27 +142,47 @@ export function SecurityScan() {
     else setTargetsError(r.error)
   }
 
-  // Trivy does not stream progress, so there is no percentage to report. The
-  // old bar counted to 100 on a timer while nothing measured it. Elapsed
-  // seconds is the one honest thing to show.
+  // Polling lives here rather than inside start() so it survives a re-render
+  // and stops cleanly on unmount. Two seconds: Trivy reports no progress of
+  // its own, so this is only asking "are you done yet".
+  const pollingId = run && run.status === "running" ? run.id : null
   useEffect(() => {
-    if (!running) return
-    started.current = Date.now()
-    setElapsed(0)
-    const t = setInterval(() => setElapsed(Math.round((Date.now() - started.current) / 1000)), 1000)
-    return () => clearInterval(t)
-  }, [running])
+    if (!pollingId) return
+    let live = true
+    const tick = async () => {
+      const r = await pollScanAction(pollingId)
+      if (!live) return
+      if (r.ok) setRun(r.progress)
+      else {
+        setError(r.error)
+        setRun(null)
+      }
+    }
+    const t = setInterval(tick, 2000)
+    return () => {
+      live = false
+      clearInterval(t)
+    }
+  }, [pollingId])
 
   const start = async (label: string, target: string, kind: "filesystem" | "image") => {
     if (!target.trim()) return
-    setRunning({ label, target })
     setError(null)
-    setRun(null)
     setOpen(true)
-    const result = await runScanAction({ target: target.trim(), kind })
-    setRunning(null)
-    if (result.ok) setRun(result.run)
-    else setError(result.error)
+    // Shown immediately so the drawer is never blank while the request is in
+    // flight; the id arrives a moment later and the poll takes over.
+    setRun({
+      id: "", status: "running", target: target.trim(),
+      elapsedMs: 0, critical: 0, high: 0, medium: 0, low: 0, fixable: 0,
+      osEosl: false, findings: [],
+    })
+    const started = await startScanAction({ target: target.trim(), kind })
+    if (!started.ok) {
+      setRun(null)
+      setError(started.error)
+      return
+    }
+    setRun((cur) => (cur ? { ...cur, id: started.id } : cur))
   }
 
   const findings = run?.findings ? rank(run.findings) : []
@@ -175,7 +196,7 @@ export function SecurityScan() {
             {running ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Scanning <span className="tnum ml-1">{elapsed}s</span>
+                Scanning <span className="tnum ml-1">{secs(run?.elapsedMs)}s</span>
               </>
             ) : (
               <>
@@ -267,7 +288,7 @@ export function SecurityScan() {
           <SheetHeader className="space-y-1 border-b px-6 py-4 text-left">
             <SheetTitle className="text-base">Security scan</SheetTitle>
             <SheetDescription className="font-mono text-[11px]">
-              {running ? running.target : (run?.target ?? "—")}
+              {run?.target ?? "—"}
             </SheetDescription>
           </SheetHeader>
 
@@ -275,11 +296,18 @@ export function SecurityScan() {
             <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                Scanning for <span className="tnum font-mono text-foreground">{elapsed}s</span>
+                Scanning for <span className="tnum font-mono text-foreground">{secs(run?.elapsedMs)}s</span>
               </p>
-              <p className="max-w-xs text-center text-[12px] leading-relaxed text-muted-foreground/70">
-                Trivy reports no progress until it finishes. A lockfile takes about 20 seconds; a container
-                image it has to pull takes longer.
+              <p className="max-w-sm text-center text-[12px] leading-relaxed text-muted-foreground/70">
+                Trivy reports no progress of its own until it finishes. A lockfile takes about 20 seconds; a
+                model image it has to pull can take several minutes.
+              </p>
+              <p className="max-w-sm text-center text-[12px] leading-relaxed text-muted-foreground/70">
+                This runs on the server — you can close this panel and the result will be waiting on the{" "}
+                <Link href="/security" onClick={() => setOpen(false)} className="text-primary hover:underline">
+                  security page
+                </Link>
+                .
               </p>
             </div>
           )}
@@ -299,7 +327,7 @@ export function SecurityScan() {
           {run && !running && (
             <>
               <div className="space-y-4 border-b px-6 py-4">
-                {run.outcome === "ok" && <div className="grid grid-cols-5 gap-2">
+                {run.status === "ok" && <div className="grid grid-cols-5 gap-2">
                   <Count label="Critical" value={run.critical} tone="text-crit" />
                   <Count label="High" value={run.high} tone="text-warn" />
                   <Count label="Medium" value={run.medium} />
@@ -307,11 +335,11 @@ export function SecurityScan() {
                   <Count label="Fixable" value={run.fixable} tone="text-ok" />
                 </div>}
                 <p className="tnum font-mono text-[11px] text-muted-foreground/70">
-                  {run.id} · {run.scanner} · {took(run.durationMs)} · stored
+                  {run.id} · {run.scanner ?? "trivy"} · {took(run.durationMs ?? 0)} · stored
                 </p>
               </div>
 
-              {run.outcome === "ok" && run.osEosl && total > 0 && (
+              {run.status === "ok" && run.osEosl && total > 0 && (
                 <div className="border-b bg-warn-surface px-6 py-3">
                   <p className="text-[12.5px] leading-relaxed">
                     <span className="font-medium text-warn">Incomplete.</span>{" "}
@@ -323,7 +351,7 @@ export function SecurityScan() {
                 </div>
               )}
 
-              {run.outcome === "failed" ? (
+              {run.status === "failed" ? (
                 <div className="px-6 py-5">
                   <div className="rounded-md border border-crit/25 bg-crit-surface px-4 py-3">
                     <div className="mb-1 flex items-center gap-2 text-crit">

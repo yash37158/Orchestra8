@@ -44,3 +44,31 @@ func TestScanTimeoutIsQuotedInMinutes(t *testing.T) {
 		t.Errorf("scanTimeout is %s; the failure message quotes this value, so check it still reads well", got)
 	}
 }
+
+// scanOnce holds the single-scan lock. An early return that skipped the
+// unlock would wedge every later scan in the process with no error and no
+// log line — the first draft of this had exactly that, a `return` on the
+// parse-failure path between a manual Lock and Unlock. The lock lives behind
+// a defer now; this fails if anyone goes back to hand-placing it.
+func TestScanOnceReleasesTheLockWhenTrivyFails(t *testing.T) {
+	s := &scanner{bin: "/nonexistent/trivy-does-not-exist"}
+
+	for i := 0; i < 2; i++ {
+		if _, _, err := s.scanOnce(context.Background(), "fs", "whatever"); err == nil {
+			t.Fatalf("call %d: expected a failure from a missing binary", i)
+		}
+	}
+
+	// A leaked lock shows up as a hang, not a failure, so bound it.
+	done := make(chan struct{})
+	go func() {
+		s.execMu.Lock()
+		s.execMu.Unlock()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("lock still held after a failed scan — every later scan would hang here")
+	}
+}

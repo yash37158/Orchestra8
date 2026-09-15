@@ -269,19 +269,42 @@ export const ScanTargetsResponse = z.object({
 })
 
 /**
- * What POST /v1/scans returns: the stored summary plus the findings it just
- * wrote. `outcome: "failed"` carries `error` and no findings — a scanner that
- * could not run and a target with nothing wrong must never look the same.
+ * What POST /v1/scans returns. The scan has been accepted, not finished — a
+ * container image for a served model is gigabytes and takes minutes to pull,
+ * which is longer than any browser or proxy will hold a request open. Poll
+ * GET /v1/scans/{id} for the outcome.
  */
-export const ScanRun = ScanSummary.extend({
-  low: z.number().int().nonnegative(),
-  targetKind: z.string(),
-  scanner: z.string(),
-  durationMs: z.number().int().nonnegative(),
-  findings: z.array(ScanFinding).nullable(),
-  error: z.string().optional(),
-  osFamily: z.string().optional(),
+export const ScanStart = z.object({
+  id: z.string(),
+  status: z.literal("running"),
+  target: z.string(),
+  kind: z.string(),
+})
+
+/**
+ * What GET /v1/scans/{id} returns, whether the scan is still going or done.
+ *
+ * "running" carries elapsedMs and nothing else worth reading; the counts are
+ * zero because there is no answer yet, not because the target is clean. A
+ * finished scan carries durationMs, and "failed" carries the reason.
+ */
+export const ScanProgress = z.object({
+  id: z.string(),
+  status: z.enum(["running", "ok", "failed"]),
+  target: z.string(),
+  at: Iso.optional(),
+  elapsedMs: z.number().int().nonnegative().optional(),
+  durationMs: z.number().int().nonnegative().optional(),
+  scanner: z.string().optional(),
+  critical: z.number().int().nonnegative().default(0),
+  high: z.number().int().nonnegative().default(0),
+  medium: z.number().int().nonnegative().default(0),
+  low: z.number().int().nonnegative().default(0),
+  fixable: z.number().int().nonnegative().default(0),
+  osEosl: z.boolean().default(false),
   osName: z.string().optional(),
+  error: z.string().optional(),
+  findings: z.array(ScanFinding).nullable().default([]),
 })
 
 /** Per-model serving economics. Joins inference performance to GPU spend. */
@@ -473,7 +496,8 @@ export type ClustersResponse = z.infer<typeof ClustersResponse>
 export type ScanSummary = z.infer<typeof ScanSummary>
 export type ScanFinding = z.infer<typeof ScanFinding>
 export type ScansResponse = z.infer<typeof ScansResponse>
-export type ScanRun = z.infer<typeof ScanRun>
+export type ScanStart = z.infer<typeof ScanStart>
+export type ScanProgress = z.infer<typeof ScanProgress>
 export type ScanTarget = z.infer<typeof ScanTarget>
 export type ModelEconomics = z.infer<typeof ModelEconomics>
 export type Recommendation = z.infer<typeof Recommendation>

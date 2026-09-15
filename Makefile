@@ -133,9 +133,7 @@ check: contract              ## everything that can fail
 test: check
 
 scan:                        ## scan this repo's dependencies with trivy
-	@curl -s -X POST localhost:8088/v1/scans -H 'Content-Type: application/json' \
-		-d '{"target":"../../package-lock.json","kind":"filesystem"}' \
-		| python3 -c 'import json,sys;d=json.load(sys.stdin);print(f"  {d[\"id\"]}: {d[\"critical\"]} critical, {d[\"high\"]} high, {d[\"fixable\"]} fixable")'
+	@bash scripts/scan.sh
 
 hook:                        ## run a local webhook receiver to watch alerts land
 	@echo "  listening on :9999 — alerts append to /tmp/hook-received.jsonl"

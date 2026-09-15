@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,6 +29,90 @@ type scanner struct {
 	audit  *auditLog
 	bin    string // trivy
 	docker string // DOCKER_CONFIG dir, isolated from the user's own
+
+	// Scans in flight, so a poll can tell "still working" from "never heard
+	// of it". Only scans started by THIS process are in here.
+	//
+	// ponytail: in-process map, which is correct while the API runs one
+	// replica — it already must, because the correlation engine is a
+	// singleton loop and the audit chain is guarded by a process-local mutex.
+	// A second replica would need this in Postgres beside the other control
+	// -plane state; the poll contract does not change, only where it reads.
+	mu      sync.Mutex
+	running map[string]inFlight
+
+	// Trivy keeps a filesystem cache — its advisory database and image layers
+	// — behind a lock, and a second process that wants it gives up with
+	// "cache may be in use by another process". Scans used to be rare and
+	// serialised by the request that blocked on them; now that they run in the
+	// background, two clicks a second apart collide and the loser records a
+	// failure that says nothing about the image it was asked to scan.
+	//
+	// One at a time. Scanning is I/O and CPU bound, so running two buys little
+	// even when it works, and a queued scan costs the caller nothing now that
+	// nobody is holding a socket open waiting for it.
+	execMu sync.Mutex
+}
+
+type inFlight struct {
+	Target  string
+	Kind    string
+	Started time.Time
+	Org     string
+}
+
+func (s *scanner) mark(id string, f inFlight) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.running == nil {
+		s.running = map[string]inFlight{}
+	}
+	s.running[id] = f
+}
+
+func (s *scanner) unmark(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.running, id)
+}
+
+// inFlightFor reports a running scan, scoped to the caller's organisation so
+// one tenant cannot poll another's work into view.
+func (s *scanner) inFlightFor(org, id string) (inFlight, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, ok := s.running[id]
+	if !ok || f.Org != org {
+		return inFlight{}, false
+	}
+	return f, true
+}
+
+// Start launches a scan and returns its id straight away.
+//
+// A container image for a served model is measured in gigabytes; Trivy has to
+// pull the whole thing before it can look inside, which takes minutes. Holding
+// an HTTP request open that long fails on its own — the browser, and any proxy
+// or load balancer between, will give up first, and the caller who waited got
+// nothing for it. The work outlives the request now and the page polls.
+func (s *scanner) Start(ctx context.Context, target, kind, actor string) string {
+	started := time.Now()
+	id := fmt.Sprintf("scan-%d", started.UTC().UnixNano()/1e6)
+	org := orgFromContext(ctx)
+
+	// The request context is cancelled the moment the response is written, so
+	// the scan cannot borrow it. WithoutCancel keeps the organisation, which
+	// every write below is scoped by.
+	runCtx := context.WithoutCancel(ctx)
+
+	s.mark(id, inFlight{Target: target, Kind: kind, Started: started, Org: org})
+	go func() {
+		defer s.unmark(id)
+		if _, err := s.run(runCtx, id, started, target, kind, actor); err != nil {
+			log.Printf("scan %s (%s): %v", id, target, err)
+		}
+	}()
+	return id
 }
 
 type Finding struct {
@@ -89,9 +174,7 @@ func recordCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 // Run executes a scan and persists it. A failure is recorded as a failed scan
 // with the reason, never as an empty result — "no findings" and "the scanner
 // could not run" must never look the same to the person reading the page.
-func (s *scanner) Run(ctx context.Context, target, kind, actor string) (*ScanResult, error) {
-	started := time.Now()
-	id := fmt.Sprintf("scan-%d", started.UTC().UnixNano()/1e6)
+func (s *scanner) run(ctx context.Context, id string, started time.Time, target, kind, actor string) (*ScanResult, error) {
 	res := &ScanResult{
 		ID: id, At: started.UTC().Format(time.RFC3339Nano),
 		Target: target, TargetKind: kind, Scanner: "trivy", Outcome: "ok",
@@ -108,7 +191,7 @@ func (s *scanner) Run(ctx context.Context, target, kind, actor string) (*ScanRes
 	sbomPath := filepath.Join(os.TempDir(), id+"-sbom.json")
 	defer os.Remove(sbomPath)
 
-	raw, err := s.exec(ctx, mode, "--scanners", "vuln", "--format", "json", "--quiet", target)
+	raw, sbom, err := s.scanOnce(ctx, mode, target)
 	if err != nil {
 		res.Outcome = "failed"
 		res.Error = err.Error()
@@ -207,13 +290,6 @@ func (s *scanner) Run(ctx context.Context, target, kind, actor string) (*ScanRes
 		return a.VulnID < b.VulnID
 	})
 
-	// The SBOM is the durable artefact. Findings age the moment a new CVE is
-	// published; the bill of materials does not.
-	sbom := ""
-	if b, err := s.exec(ctx, mode, "--format", "cyclonedx", "--quiet", target); err == nil {
-		sbom = string(b)
-	}
-
 	res.DurationMs = int(time.Since(started).Milliseconds())
 	// Detached here too: the work is done and paid for, and a caller who closed
 	// the tab in the last second should not cost us the result.
@@ -227,6 +303,27 @@ func (s *scanner) Run(ctx context.Context, target, kind, actor string) (*ScanRes
 		"findings": len(res.Findings), "sbomBytes": len(sbom),
 	})
 	return res, nil
+}
+
+// scanOnce runs both Trivy passes for one target while holding the
+// single-scan lock, so the lock cannot be leaked by a return added later.
+//
+// The SBOM is the durable artefact: findings age the moment a new CVE is
+// published, the bill of materials does not. Its failure is not fatal — a scan
+// with findings and no SBOM is still worth storing.
+func (s *scanner) scanOnce(ctx context.Context, mode, target string) ([]byte, string, error) {
+	s.execMu.Lock()
+	defer s.execMu.Unlock()
+
+	raw, err := s.exec(ctx, mode, "--scanners", "vuln", "--format", "json", "--quiet", target)
+	if err != nil {
+		return nil, "", err
+	}
+	sbom := ""
+	if b, err := s.exec(ctx, mode, "--format", "cyclonedx", "--quiet", target); err == nil {
+		sbom = string(b)
+	}
+	return raw, sbom, nil
 }
 
 func (s *scanner) exec(ctx context.Context, args ...string) ([]byte, error) {
@@ -267,6 +364,7 @@ func (s *scanner) persist(ctx context.Context, r *ScanResult, sbom string) error
 		"Critical": r.Critical, "High": r.High, "Medium": r.Medium, "Low": r.Low,
 		"Fixable": r.Fixable, "SbomJson": sbom, "Outcome": r.Outcome,
 		"OsFamily": r.OsFamily, "OsName": r.OsName, "OsEosl": boolToUint8(r.OsEosl),
+		"Error": r.Error,
 	})
 	if err != nil {
 		return err
@@ -451,4 +549,55 @@ func handleScanTargets(w http.ResponseWriter, r *http.Request, c *chClient) {
 		return
 	}
 	writeJSON(w, map[string]any{"targets": targets})
+}
+
+// scanDetail is one stored scan, enough to answer a poll without a second
+// round trip. nil means no row — the scan never finished, or never existed.
+type scanDetail struct {
+	ID         string
+	At         string
+	Target     string
+	Outcome    string
+	Error      string
+	DurationMs int
+	Critical   int
+	High       int
+	Medium     int
+	Low        int
+	Fixable    int
+	OsEosl     bool
+	OsName     string
+}
+
+func scanByID(ctx context.Context, c *chClient, org, id string) (*scanDetail, error) {
+	var rows []struct {
+		Id         string `json:"Id"`
+		At         string `json:"At"`
+		Target     string `json:"Target"`
+		Outcome    string `json:"Outcome"`
+		Error      string `json:"Error"`
+		DurationMs int    `json:"DurationMs"`
+		Critical   int    `json:"Critical"`
+		High       int    `json:"High"`
+		Medium     int    `json:"Medium"`
+		Low        int    `json:"Low"`
+		Fixable    int    `json:"Fixable"`
+		OsEosl     int    `json:"OsEosl"`
+		OsName     string `json:"OsName"`
+	}
+	q := fmt.Sprintf(`SELECT Id, toString(At) AS At, Target, Outcome, Error, DurationMs,
+  Critical, High, Medium, Low, Fixable, OsEosl, OsName
+FROM orchestr8.scans WHERE %s AND Id = %s LIMIT 1`, orgClause(org), chQuote(id))
+	if err := c.query(ctx, q, &rows); err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	r := rows[0]
+	return &scanDetail{
+		ID: r.Id, At: isoFromCH(r.At), Target: r.Target, Outcome: r.Outcome, Error: r.Error,
+		DurationMs: r.DurationMs, Critical: r.Critical, High: r.High, Medium: r.Medium,
+		Low: r.Low, Fixable: r.Fixable, OsEosl: r.OsEosl == 1, OsName: r.OsName,
+	}, nil
 }

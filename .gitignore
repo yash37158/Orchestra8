@@ -33,3 +33,10 @@ next-env.d.ts
 
 # local dev state: clickhouse data, downloaded binaries
 /.localdev/
+
+# compiled Go binaries
+#
+# `go build` drops the binary beside its source, and it was tracked: 25 MB
+# across three versions against ~190 KB for the entire rest of the repo. It is
+# build output — `make api` or `go build ./...` regenerates it.
+services/api/api

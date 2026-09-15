@@ -169,6 +169,11 @@ export function SecurityScan() {
   const start = async (label: string, target: string, kind: "filesystem" | "image") => {
     if (!target.trim()) return
     setMenuOpen(false)
+    // The field kept its text after a scan started, so the next thing typed
+    // into it appended: "alpine:3.18" then "alpine:3.14" became the target
+    // "alpine:3.18alpine:3.14", which fails as an image reference and lands in
+    // the history looking like a scanner problem.
+    setCustom("")
     setError(null)
     setOpen(true)
     // Shown immediately so the drawer is never blank while the request is in

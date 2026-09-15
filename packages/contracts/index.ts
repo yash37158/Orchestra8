@@ -249,6 +249,20 @@ export const ScansResponse = z.object({
   scans: z.array(ScanSummary),
 })
 
+/**
+ * What POST /v1/scans returns: the stored summary plus the findings it just
+ * wrote. `outcome: "failed"` carries `error` and no findings — a scanner that
+ * could not run and a target with nothing wrong must never look the same.
+ */
+export const ScanRun = ScanSummary.extend({
+  low: z.number().int().nonnegative(),
+  targetKind: z.string(),
+  scanner: z.string(),
+  durationMs: z.number().int().nonnegative(),
+  findings: z.array(ScanFinding).nullable(),
+  error: z.string().optional(),
+})
+
 /** Per-model serving economics. Joins inference performance to GPU spend. */
 export const ModelEconomics = z.object({
   clusterId: z.string(),
@@ -438,6 +452,7 @@ export type ClustersResponse = z.infer<typeof ClustersResponse>
 export type ScanSummary = z.infer<typeof ScanSummary>
 export type ScanFinding = z.infer<typeof ScanFinding>
 export type ScansResponse = z.infer<typeof ScansResponse>
+export type ScanRun = z.infer<typeof ScanRun>
 export type ModelEconomics = z.infer<typeof ModelEconomics>
 export type Recommendation = z.infer<typeof Recommendation>
 export type InferenceResponse = z.infer<typeof InferenceResponse>

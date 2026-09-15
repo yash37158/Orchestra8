@@ -132,16 +132,24 @@ export default async function SecurityPage() {
                           <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">{ago(s.at)}</td>
                           <td className="px-4 py-2 font-mono text-xs">{s.target}</td>
                           <td className="tnum whitespace-nowrap px-4 py-2">
-                            <span className={s.critical > 0 ? "text-crit" : "text-muted-foreground"}>{s.critical} crit</span>
-                            <span className="mx-2 text-muted-foreground">·</span>
-                            <span className={s.high > 0 ? "text-warn" : "text-muted-foreground"}>{s.high} high</span>
+                            {s.outcome === "failed" ? (
+                              <span className="text-crit">did not run</span>
+                            ) : (
+                              <>
+                                <span className={s.critical > 0 ? "text-crit" : "text-muted-foreground"}>{s.critical} crit</span>
+                                <span className="mx-2 text-muted-foreground">·</span>
+                                <span className={s.high > 0 ? "text-warn" : "text-muted-foreground"}>{s.high} high</span>
+                              </>
+                            )}
                           </td>
                           <td className="px-4 py-2 text-right">
-                            <a href={`http://localhost:8088/v1/scans/${s.id}/export?format=csv`}
+                            {s.outcome === "ok" && <>
+                            <a href={`/api/scans/${s.id}/export?format=csv`}
                                className="text-xs text-primary hover:underline">CSV</a>
                             <span className="mx-1.5 text-muted-foreground">·</span>
-                            <a href={`http://localhost:8088/v1/scans/${s.id}/export?format=sbom`}
+                            <a href={`/api/scans/${s.id}/export?format=sbom`}
                                className="text-xs text-primary hover:underline">SBOM</a>
+                            </>}
                           </td>
                         </tr>
                       ))}

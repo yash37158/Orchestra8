@@ -83,6 +83,10 @@ func (s *scanner) Run(ctx context.Context, target, kind, actor string) (*ScanRes
 	if err != nil {
 		res.Outcome = "failed"
 		res.Error = err.Error()
+		// Every failure path has to record the duration too. Without this a
+		// failed scan stores 0ms, and "the scanner died instantly" and "the
+		// scanner ground for four minutes and then died" read identically.
+		res.DurationMs = int(time.Since(started).Milliseconds())
 		_ = s.persist(ctx, res, "")
 		_, _ = s.audit.Append(ctx, actor, "scan.run", target, "", "failed",
 			map[string]any{"scanId": id, "error": err.Error()})
@@ -105,6 +109,7 @@ func (s *scanner) Run(ctx context.Context, target, kind, actor string) (*ScanRes
 	if err := json.Unmarshal(raw, &out); err != nil {
 		res.Outcome = "failed"
 		res.Error = "could not parse scanner output: " + err.Error()
+		res.DurationMs = int(time.Since(started).Milliseconds())
 		_ = s.persist(ctx, res, "")
 		return res, nil
 	}

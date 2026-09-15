@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 
-import { runScan, type ScanInput, type ScanOutcome } from "@/lib/api/scans"
+import { getScanTargets, runScan, type ScanInput, type ScanOutcome } from "@/lib/api/scans"
 
 export async function runScanAction(input: ScanInput): Promise<ScanOutcome> {
   const result = await runScan(input)
@@ -13,4 +13,8 @@ export async function runScanAction(input: ScanInput): Promise<ScanOutcome> {
     revalidatePath("/audit")
   }
   return result
+}
+
+export async function getScanTargetsAction() {
+  return getScanTargets()
 }

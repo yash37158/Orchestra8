@@ -106,6 +106,7 @@ func main() {
 	mux.HandleFunc("/v1/deployments", func(w http.ResponseWriter, r *http.Request) { handleDeployments(w, r, dep) })
 	mux.HandleFunc("/v1/deployments/preflight", func(w http.ResponseWriter, r *http.Request) { handlePreflight(w, r, dep) })
 	mux.HandleFunc("/v1/scans", func(w http.ResponseWriter, r *http.Request) { handleScans(w, r, scn) })
+	mux.HandleFunc("/v1/scan-targets", func(w http.ResponseWriter, r *http.Request) { handleScanTargets(w, r, ch) })
 	mux.HandleFunc("/v1/scans/", func(w http.ResponseWriter, r *http.Request) { handleScan(w, r, scn, dep) })
 	mux.HandleFunc("/v1/audit", func(w http.ResponseWriter, r *http.Request) { handleAudit(w, r, aud) })
 	mux.HandleFunc("/v1/audit/verify", func(w http.ResponseWriter, r *http.Request) { handleAudit(w, r, aud) })

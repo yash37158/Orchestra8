@@ -229,6 +229,10 @@ export const ScanSummary = z.object({
   medium: z.number().int().nonnegative(),
   fixable: z.number().int().nonnegative(),
   outcome: z.enum(["ok", "failed"]),
+  // True when the target runs an OS past its support window. Trivy returns an
+  // empty result for those because the advisory feed stopped, so without this
+  // "clean" and "unchecked" render identically.
+  osEosl: z.boolean().default(false),
 })
 
 export const ScanFinding = z.object({
@@ -250,6 +254,21 @@ export const ScansResponse = z.object({
 })
 
 /**
+ * An image this organisation has deployed, offered as something to scan.
+ * Read from the audit ledger, so the list is exactly what went out.
+ */
+export const ScanTarget = z.object({
+  image: z.string(),
+  app: z.string(),
+  clusterId: z.string(),
+  lastDeployed: Iso,
+})
+
+export const ScanTargetsResponse = z.object({
+  targets: z.array(ScanTarget),
+})
+
+/**
  * What POST /v1/scans returns: the stored summary plus the findings it just
  * wrote. `outcome: "failed"` carries `error` and no findings — a scanner that
  * could not run and a target with nothing wrong must never look the same.
@@ -261,6 +280,8 @@ export const ScanRun = ScanSummary.extend({
   durationMs: z.number().int().nonnegative(),
   findings: z.array(ScanFinding).nullable(),
   error: z.string().optional(),
+  osFamily: z.string().optional(),
+  osName: z.string().optional(),
 })
 
 /** Per-model serving economics. Joins inference performance to GPU spend. */
@@ -453,6 +474,7 @@ export type ScanSummary = z.infer<typeof ScanSummary>
 export type ScanFinding = z.infer<typeof ScanFinding>
 export type ScansResponse = z.infer<typeof ScansResponse>
 export type ScanRun = z.infer<typeof ScanRun>
+export type ScanTarget = z.infer<typeof ScanTarget>
 export type ModelEconomics = z.infer<typeof ModelEconomics>
 export type Recommendation = z.infer<typeof Recommendation>
 export type InferenceResponse = z.infer<typeof InferenceResponse>

@@ -1,4 +1,4 @@
-import { ScanRun } from "@orchestr8/contracts"
+import { ScanRun, ScanTargetsResponse, type ScanTarget } from "@orchestr8/contracts"
 
 import { apiFetch, describeStatus, rethrowRedirect } from "./fetch"
 
@@ -43,5 +43,23 @@ export async function runScan(input: ScanInput): Promise<ScanOutcome> {
       ok: false,
       error: err instanceof Error ? `Cannot reach orchestr8-api: ${err.message}` : "Unknown error",
     }
+  }
+}
+
+export type TargetsOutcome =
+  | { ok: true; targets: ScanTarget[] }
+  | { ok: false; error: string }
+
+/** Images this organisation has deployed — the list of things worth scanning. */
+export async function getScanTargets(): Promise<TargetsOutcome> {
+  try {
+    const res = await apiFetch("/v1/scan-targets")
+    if (!res.ok) return { ok: false, error: describeStatus(res.status, res.statusText) }
+    const parsed = ScanTargetsResponse.safeParse(await res.json())
+    if (!parsed.success) return { ok: false, error: "The API returned targets in an unexpected shape." }
+    return { ok: true, targets: parsed.data.targets }
+  } catch (err) {
+    rethrowRedirect(err)
+    return { ok: false, error: err instanceof Error ? err.message : "Unknown error" }
   }
 }

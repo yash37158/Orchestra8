@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,6 +54,15 @@ type ScanResult struct {
 	Findings   []Finding `json:"findings"`
 	Outcome    string    `json:"outcome"`
 	Error      string    `json:"error,omitempty"`
+	// Set when the target runs an OS the distribution no longer issues
+	// security updates for. Trivy still returns a result — usually an empty
+	// one, because the advisory feed for that release stopped — and without
+	// this flag "nothing to fix" and "nobody is looking any more" are the
+	// same screen. It warns on stderr, which is discarded, so the structured
+	// field is the only way to carry it.
+	OsFamily string `json:"osFamily,omitempty"`
+	OsName   string `json:"osName,omitempty"`
+	OsEosl   bool   `json:"osEosl"`
 }
 
 var severityRank = map[string]int{"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "UNKNOWN": 4}
@@ -94,6 +104,13 @@ func (s *scanner) Run(ctx context.Context, target, kind, actor string) (*ScanRes
 	}
 
 	var out struct {
+		Metadata struct {
+			OS struct {
+				Family string `json:"Family"`
+				Name   string `json:"Name"`
+				EOSL   bool   `json:"EOSL"`
+			} `json:"OS"`
+		} `json:"Metadata"`
 		Results []struct {
 			Vulnerabilities []struct {
 				VulnerabilityID  string `json:"VulnerabilityID"`
@@ -113,6 +130,10 @@ func (s *scanner) Run(ctx context.Context, target, kind, actor string) (*ScanRes
 		_ = s.persist(ctx, res, "")
 		return res, nil
 	}
+
+	res.OsFamily = out.Metadata.OS.Family
+	res.OsName = out.Metadata.OS.Name
+	res.OsEosl = out.Metadata.OS.EOSL
 	for _, r := range out.Results {
 		for _, v := range r.Vulnerabilities {
 			f := Finding{
@@ -204,6 +225,7 @@ func (s *scanner) persist(ctx context.Context, r *ScanResult, sbom string) error
 		"Scanner": r.Scanner, "DurationMs": r.DurationMs,
 		"Critical": r.Critical, "High": r.High, "Medium": r.Medium, "Low": r.Low,
 		"Fixable": r.Fixable, "SbomJson": sbom, "Outcome": r.Outcome,
+		"OsFamily": r.OsFamily, "OsName": r.OsName, "OsEosl": boolToUint8(r.OsEosl),
 	})
 	if err != nil {
 		return err
@@ -247,6 +269,7 @@ type scanSummary struct {
 	Medium   int    `json:"medium"`
 	Fixable  int    `json:"fixable"`
 	Outcome  string `json:"outcome"`
+	OsEosl   bool   `json:"osEosl"`
 }
 
 // latestScanFor backs the deploy preflight gate.
@@ -260,8 +283,9 @@ func latestScanFor(ctx context.Context, c *chClient, org, target string) (*scanS
 		Medium   int    `json:"Medium"`
 		Fixable  int    `json:"Fixable"`
 		Outcome  string `json:"Outcome"`
+		OsEosl   int    `json:"OsEosl"`
 	}
-	q := fmt.Sprintf(`SELECT Id, toString(At) AS At, Target, Critical, High, Medium, Fixable, Outcome
+	q := fmt.Sprintf(`SELECT Id, toString(At) AS At, Target, Critical, High, Medium, Fixable, Outcome, OsEosl
 FROM orchestr8.scans WHERE %s AND Target = %s AND Outcome = 'ok' ORDER BY At DESC LIMIT 1`, orgClause(org), chQuote(target))
 	if err := c.query(ctx, q, &rows); err != nil {
 		return nil, err
@@ -271,7 +295,8 @@ FROM orchestr8.scans WHERE %s AND Target = %s AND Outcome = 'ok' ORDER BY At DES
 	}
 	r := rows[0]
 	return &scanSummary{ID: r.Id, At: isoFromCH(r.At), Target: r.Target,
-		Critical: r.Critical, High: r.High, Medium: r.Medium, Fixable: r.Fixable, Outcome: r.Outcome}, nil
+		Critical: r.Critical, High: r.High, Medium: r.Medium, Fixable: r.Fixable, Outcome: r.Outcome,
+			OsEosl: r.OsEosl == 1}, nil
 }
 
 func listScans(ctx context.Context, c *chClient, org string, limit int) ([]scanSummary, error) {
@@ -287,8 +312,9 @@ func listScans(ctx context.Context, c *chClient, org string, limit int) ([]scanS
 		Medium   int    `json:"Medium"`
 		Fixable  int    `json:"Fixable"`
 		Outcome  string `json:"Outcome"`
+		OsEosl   int    `json:"OsEosl"`
 	}
-	q := fmt.Sprintf(`SELECT Id, toString(At) AS At, Target, Critical, High, Medium, Fixable, Outcome
+	q := fmt.Sprintf(`SELECT Id, toString(At) AS At, Target, Critical, High, Medium, Fixable, Outcome, OsEosl
 FROM orchestr8.scans WHERE %s ORDER BY At DESC LIMIT %d`, orgClause(org), limit)
 	if err := c.query(ctx, q, &rows); err != nil {
 		return nil, err
@@ -296,7 +322,8 @@ FROM orchestr8.scans WHERE %s ORDER BY At DESC LIMIT %d`, orgClause(org), limit)
 	out := make([]scanSummary, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, scanSummary{ID: r.Id, At: isoFromCH(r.At), Target: r.Target,
-			Critical: r.Critical, High: r.High, Medium: r.Medium, Fixable: r.Fixable, Outcome: r.Outcome})
+			Critical: r.Critical, High: r.High, Medium: r.Medium, Fixable: r.Fixable, Outcome: r.Outcome,
+			OsEosl: r.OsEosl == 1})
 	}
 	return out, nil
 }
@@ -326,4 +353,61 @@ ORDER BY multiIf(Severity='CRITICAL',0,Severity='HIGH',1,Severity='MEDIUM',2,3),
 		})
 	}
 	return out, nil
+}
+
+// ---------------------------------------------------------------- what to scan
+
+// ScanTarget is an image this organisation has actually deployed.
+//
+// Sourced from the audit ledger rather than the GitOps commit log. The ledger
+// stores the image as its own field on deploy.apply, so reading it back is a
+// lookup; the commit log only has it inside a human-readable subject line,
+// and parsing that means a reworded message silently empties this list.
+type ScanTarget struct {
+	Image        string `json:"image"`
+	App          string `json:"app"`
+	ClusterID    string `json:"clusterId"`
+	LastDeployed string `json:"lastDeployed"`
+}
+
+func scanTargets(ctx context.Context, c *chClient, org string) ([]ScanTarget, error) {
+	var rows []struct {
+		Image     string `json:"Image"`
+		App       string `json:"App"`
+		ClusterId string `json:"ClusterId"`
+		LastAt    string `json:"LastAt"`
+	}
+	// One row per distinct image, carrying the app and cluster it was last
+	// deployed as. The same image deployed to three clusters is still one
+	// thing to scan — the bytes do not differ by where they run.
+	q := fmt.Sprintf(`SELECT
+  JSONExtractString(Detail, 'image') AS Image,
+  argMax(Subject, At)                AS App,
+  argMax(ClusterId, At)              AS ClusterId,
+  toString(max(At))                  AS LastAt
+FROM orchestr8.audit_log
+WHERE %s AND Action = 'deploy.apply' AND Outcome = 'allowed'
+GROUP BY Image
+HAVING Image != ''
+ORDER BY LastAt DESC
+LIMIT 20`, orgClause(org))
+	if err := c.query(ctx, q, &rows); err != nil {
+		return nil, err
+	}
+	out := make([]ScanTarget, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ScanTarget{
+			Image: r.Image, App: r.App, ClusterID: r.ClusterId, LastDeployed: isoFromCH(r.LastAt),
+		})
+	}
+	return out, nil
+}
+
+func handleScanTargets(w http.ResponseWriter, r *http.Request, c *chClient) {
+	targets, err := scanTargets(r.Context(), c, orgFromRequest(r))
+	if err != nil {
+		http.Error(w, "could not read scan targets", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"targets": targets})
 }

@@ -21,8 +21,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { runScanAction } from "@/app/scan-actions"
-import type { ScanFinding, ScanRun } from "@orchestr8/contracts"
+import { getScanTargetsAction, runScanAction } from "@/app/scan-actions"
+import type { ScanFinding, ScanRun, ScanTarget } from "@orchestr8/contracts"
 
 /**
  * Runs a real Trivy scan through the API and shows what it stored.
@@ -37,27 +37,6 @@ import type { ScanFinding, ScanRun } from "@orchestr8/contracts"
  * failures, which is why a failed scan renders its reason rather than an empty
  * table.
  */
-
-type Preset = { id: string; label: string; hint: string; target: string; kind: "filesystem" | "image" }
-
-// Targets that exist in this repository, so the button does something real on
-// a fresh checkout. Anything else goes through Custom.
-const PRESETS: Preset[] = [
-  {
-    id: "web-deps",
-    label: "Dashboard dependencies",
-    hint: "package-lock.json",
-    target: "../../package-lock.json",
-    kind: "filesystem",
-  },
-  {
-    id: "api-deps",
-    label: "API dependencies",
-    hint: "services/api/go.sum",
-    target: "../../services/api",
-    kind: "filesystem",
-  },
-]
 
 // Trivy caches its advisory database, so a repeat scan finishes in under a
 // second. Fixed at one decimal that renders as "0.0s", which reads as though
@@ -142,14 +121,25 @@ function Finding({ f }: { f: ScanFinding }) {
 }
 
 export function SecurityScan() {
-  const [running, setRunning] = useState<Preset | { label: string; target: string } | null>(null)
+  const [running, setRunning] = useState<{ label: string; target: string } | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const [open, setOpen] = useState(false)
   const [run, setRun] = useState<ScanRun | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [custom, setCustom] = useState("")
   const [customKind, setCustomKind] = useState<"filesystem" | "image">("image")
+  const [targets, setTargets] = useState<ScanTarget[] | null>(null)
+  const [targetsError, setTargetsError] = useState<string | null>(null)
   const started = useRef(0)
+
+  // Loaded when the menu is first opened rather than on mount: this component
+  // sits in the nav on every page, and the list is only ever read here.
+  const loadTargets = async () => {
+    if (targets || targetsError) return
+    const r = await getScanTargetsAction()
+    if (r.ok) setTargets(r.targets)
+    else setTargetsError(r.error)
+  }
 
   // Trivy does not stream progress, so there is no percentage to report. The
   // old bar counted to 100 on a timer while nothing measured it. Elapsed
@@ -179,7 +169,7 @@ export function SecurityScan() {
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={(o) => o && loadTargets()}>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" disabled={!!running}>
             {running ? (
@@ -197,17 +187,35 @@ export function SecurityScan() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-80">
           <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-            Trivy scans a path or a container image for known CVEs. Every run is stored.
+            Images this organisation has deployed. Every run is stored.
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          {PRESETS.map((p) => (
+
+          {targetsError && (
+            <p className="px-2 py-2 text-[11px] leading-relaxed text-crit">{targetsError}</p>
+          )}
+
+          {targets === null && !targetsError && (
+            <p className="px-2 py-2 text-[11px] text-muted-foreground">Loading deployed images…</p>
+          )}
+
+          {targets?.length === 0 && (
+            <p className="px-2 py-2 text-[11px] leading-relaxed text-muted-foreground">
+              Nothing deployed through Orchestr8 yet, so there is no list to offer. Deploy a model and its
+              image appears here — or scan any image by name below.
+            </p>
+          )}
+
+          {targets?.map((t) => (
             <DropdownMenuItem
-              key={p.id}
-              onClick={() => start(p.label, p.target, p.kind)}
+              key={t.image}
+              onClick={() => start(t.image, t.image, "image")}
               className="flex-col items-start gap-0.5 py-2"
             >
-              <span className="text-[13px]">{p.label}</span>
-              <span className="font-mono text-[10px] text-muted-foreground">{p.hint}</span>
+              <span className="font-mono text-[11.5px]">{t.image}</span>
+              <span className="text-[10px] text-muted-foreground">
+                {t.app} · {t.clusterId}
+              </span>
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
@@ -219,7 +227,7 @@ export function SecurityScan() {
             onKeyDown={(e) => e.stopPropagation()}
           >
             <label className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              Custom target
+              Any other image
             </label>
             <div className="mt-1.5 flex gap-1.5">
               <Input
@@ -303,6 +311,18 @@ export function SecurityScan() {
                 </p>
               </div>
 
+              {run.outcome === "ok" && run.osEosl && total > 0 && (
+                <div className="border-b bg-warn-surface px-6 py-3">
+                  <p className="text-[12.5px] leading-relaxed">
+                    <span className="font-medium text-warn">Incomplete.</span>{" "}
+                    <span className="text-muted-foreground">
+                      {run.osName || "This OS"} no longer receives security updates, so this list is only
+                      what was known before the advisory feed stopped.
+                    </span>
+                  </p>
+                </div>
+              )}
+
               {run.outcome === "failed" ? (
                 <div className="px-6 py-5">
                   <div className="rounded-md border border-crit/25 bg-crit-surface px-4 py-3">
@@ -320,11 +340,24 @@ export function SecurityScan() {
                 </div>
               ) : total === 0 ? (
                 <div className="px-6 py-8 text-center">
-                  <p className="text-sm font-medium text-ok">No known vulnerabilities</p>
-                  <p className="mx-auto mt-1.5 max-w-sm text-[12.5px] leading-relaxed text-muted-foreground">
-                    Trivy matched this target against its advisory database and found nothing. That is a
-                    result, not an absence of one — it is stored and timestamped.
-                  </p>
+                  {run.osEosl ? (
+                    <>
+                      <p className="text-sm font-medium text-warn">Nothing found, but nothing is watching</p>
+                      <p className="mx-auto mt-1.5 max-w-md text-[12.5px] leading-relaxed text-muted-foreground">
+                        {run.osName || "This OS"} is past its support window, so its vendor has stopped
+                        publishing advisories. An empty result here means the feed ended, not that the image
+                        is safe. Move to a supported base image before reading this as a pass.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium text-ok">No known vulnerabilities</p>
+                      <p className="mx-auto mt-1.5 max-w-sm text-[12.5px] leading-relaxed text-muted-foreground">
+                        Trivy matched this target against its advisory database and found nothing. That is a
+                        result, not an absence of one — it is stored and timestamped.
+                      </p>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="min-h-0 flex-1 overflow-y-auto">

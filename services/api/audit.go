@@ -166,7 +166,11 @@ type AuditVerification struct {
 func (a *auditLog) Verify(ctx context.Context) (*AuditVerification, error) {
 	org := orgFromContext(ctx)
 	var rows []auditRow
-	q := `SELECT Seq, toString(At) AS At, Actor, Action, Subject, ClusterId,
+	// OrgId has to be selected, not just referenced: Append hashes org|actor,
+	// so leaving the column out of this query verified every entry against an
+	// empty organisation and failed at the first row. The chain has reported
+	// itself broken on every call since tenancy went into the hash.
+	q := `SELECT OrgId, Seq, toString(At) AS At, Actor, Action, Subject, ClusterId,
 	       Outcome, Detail, PrevHash, Hash
 	FROM orchestr8.audit_log WHERE ` + orgClause(org) + ` ORDER BY Seq ASC`
 	if err := a.ch.query(ctx, q, &rows); err != nil {

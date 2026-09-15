@@ -189,3 +189,11 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(At)
 ORDER BY (OrgId, Target, Severity, VulnId)
 TTL toDateTime(At) + INTERVAL 13 MONTH;
+
+-- Added after the fact: a scan of an end-of-life OS comes back empty because
+-- the distribution stopped publishing advisories, not because the image is
+-- clean. Stored so the history can tell those two apart later, not just the
+-- drawer at the moment of the scan.
+ALTER TABLE orchestr8.scans ADD COLUMN IF NOT EXISTS OsFamily LowCardinality(String) DEFAULT '';
+ALTER TABLE orchestr8.scans ADD COLUMN IF NOT EXISTS OsName String DEFAULT '';
+ALTER TABLE orchestr8.scans ADD COLUMN IF NOT EXISTS OsEosl UInt8 DEFAULT 0;

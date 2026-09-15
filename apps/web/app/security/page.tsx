@@ -1,4 +1,4 @@
-import { ExternalLink, ShieldCheck } from "lucide-react"
+import { AlertTriangle, ExternalLink, ShieldCheck } from "lucide-react"
 
 import { MainLayout } from "@/components/main-layout"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -78,9 +78,22 @@ export default async function SecurityPage() {
                 }
               >
                 {rows.length === 0 ? (
+                  latest.osEosl ? (
+                    <div className="px-4 py-5">
+                      <p className="text-sm">
+                        <AlertTriangle className="mb-0.5 mr-1 inline h-4 w-4 text-warn" />
+                        <span className="font-medium text-warn">Empty, but not clean.</span>{" "}
+                        <span className="text-muted-foreground">
+                          This target runs an OS past its support window, so advisories for it are no longer
+                          published. Nothing was found because nothing is being looked for.
+                        </span>
+                      </p>
+                    </div>
+                  ) : (
                   <div className="px-4 py-5 text-sm text-muted-foreground">
                     <ShieldCheck className="mb-1 inline h-4 w-4 text-ok" /> No findings at or above medium in this scan.
                   </div>
+                  )
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-[13px]">
@@ -139,6 +152,9 @@ export default async function SecurityPage() {
                                 <span className={s.critical > 0 ? "text-crit" : "text-muted-foreground"}>{s.critical} crit</span>
                                 <span className="mx-2 text-muted-foreground">·</span>
                                 <span className={s.high > 0 ? "text-warn" : "text-muted-foreground"}>{s.high} high</span>
+                                {s.osEosl && <span className="ml-2 text-warn" title="OS past its support window — the advisory feed for it has stopped">
+                                  · unsupported OS
+                                </span>}
                               </>
                             )}
                           </td>
